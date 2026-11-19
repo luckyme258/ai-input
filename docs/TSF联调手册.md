@@ -170,7 +170,7 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2} -MaxEvents 10 |
 | 字母 A–Z | 累积拼音；新输入重置高亮序号与页码 |
 | 退格 | 删一个拼音字母；无 composition 时放行，由宿主做原生删除 |
 | ↑ / ↓ | 当前页内上下移动高亮；越过末行向下翻页、退到首行之外向上翻页，翻页后高亮落邻页首/末行 |
-| ← / → | 上一页 / 下一页（每页 9 条），翻页后高亮落新页首行；单页候选时放行宿主 |
+| ← / →、PgUp / PgDn | 上一页 / 下一页（每页 9 条），翻页后高亮落新页首行；单页候选时放行宿主 |
 | 回车 / 空格 | 提交当前高亮候选；无候选则上屏拼音串 |
 | 数字 1–9 | 按当前页行号选词上屏（行号映射到跨页绝对序号；选非首项记纠正） |
 | Esc | 清空 composition 与状态机，隐藏候选窗 |
@@ -348,7 +348,7 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 
 - sink 新增 `_selectedIndex`（跨页高亮序号）与 `_pageOffset`（当前页起始偏移）：
   - ↑/↓ 在当前页内上下移动；高亮越过页首/页末时联动翻页；
-  - ←/→ 按每页 9 条翻页，翻页后高亮落在新页首行；单页候选时左右键放行宿主；
+  - ←/→ 与 PgUp/PgDn 按每页 9 条翻页，翻页后高亮落在新页首行；单页候选时左右键/翻页键放行宿主；
   - 回车/空格提交当前高亮项（不再固定首选）；数字 1–9 按当前页行号映射到跨页绝对序号；
   - `OnTestKeyDown` 接管判定与 `OnKeyDown` 实际消费保持一致；新输入、退格、Esc、上屏、失焦均重置高亮序号与页码。
 - 候选窗视觉：
@@ -358,6 +358,6 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 
 **遗留**
 
-- PgUp / PgDn 翻页快捷键未接（当前仅方向键翻页）；标准 UIElement 候选登记未做；inline 预览与 composition 显示属性见第 7 节。
+- PgUp / PgDn 已接翻页（与 ←/→ 共用同一套页偏移逻辑，左右箭头保留）；标准 UIElement 候选登记未做；inline 预览与 composition 显示属性见第 7 节。
 
 

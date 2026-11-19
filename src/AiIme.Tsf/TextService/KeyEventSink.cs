@@ -10,12 +10,13 @@ namespace AiIme.Tsf.TextService;
 /// <see cref="CompositionState"/>；变动后通过 <see cref="CompositionComposer"/>
 /// 把文本提交到目标上下文。
 ///
-/// 交互规则（第一版）：
-/// - 字母：累积拼音，累积阶段把拼音串写进 composition；
-/// - 回车：取首选候选词上屏（无候选则上屏拼音串）；
-/// - 数字 1..9：选对应序号候选词上屏；
+/// 交互规则：
+/// - 字母：累积拼音；
+/// - 回车/空格：提交当前高亮候选词（无候选则上屏拼音串）；
+/// - 数字 1..9：按当前页行号选对应候选词上屏；
+/// - ↑/↓：行内移动高亮；←/→ 与 PgUp/PgDn：翻页；
 /// - Esc：清空 composition 与状态机；
-/// - 退格：删一个拼音字母；
+/// - 退格：删一个拼音字母；无 composition 时放行宿主原生删除；
 /// - 候选词上屏后调 <see cref="HabitLearner.RecordCommit"/> 回写学习。
 /// </summary>
 [ClassInterface(ClassInterfaceType.None)]
@@ -47,6 +48,8 @@ public sealed class KeyEventSink : ITfKeyEventSink
     private const int VkDown = 0x28;
     private const int VkLeft = 0x25;
     private const int VkRight = 0x27;
+    private const int VkPrior = 0x21; // VK_PRIOR (PgUp)
+    private const int VkNext = 0x22;  // VK_NEXT (PgDn)
     private const int VisibleRows = 9;
 
     [DllImport("user32.dll")]
@@ -100,7 +103,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
     {
         0x08 or 0x1B or 0x0D or 0x20 => _composition.IsComposing,
         VkUp or VkDown => _composition.IsComposing && _composition.Candidates.Count > 1,
-        VkLeft or VkRight => _composition.IsComposing && _composition.Candidates.Count > VisibleRows,
+        VkLeft or VkRight or VkPrior or VkNext => _composition.IsComposing && _composition.Candidates.Count > VisibleRows,
         >= 0x31 and <= 0x39 => _composition.IsComposing && _pageOffset + vk - 0x31 < _composition.Candidates.Count,
         _ => IsLetterVk(vk),
     };
@@ -166,7 +169,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
                     action = "Down";
                     break;
 
-                case VkRight:
+                case VkRight or VkNext:
                     if (!_composition.IsComposing || _composition.Candidates.Count <= VisibleRows)
                     {
                         pfEaten = 0;
@@ -181,7 +184,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
                     action = "PageNext";
                     break;
 
-                case VkLeft:
+                case VkLeft or VkPrior:
                     if (!_composition.IsComposing || _composition.Candidates.Count <= VisibleRows)
                     {
                         pfEaten = 0;
