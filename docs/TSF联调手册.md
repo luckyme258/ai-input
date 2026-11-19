@@ -1,7 +1,7 @@
 # AiIme TSF 文本服务真机联调手册
 
-> 阶段：骨架已编译通过（0 警告 0 错误，38 测试全绿），但文本服务**尚未在真机以管理员身份注册、未被系统加载过**。
-> 本手册用于第一次管理员环境注册加载，验证"能被系统创建 → 按键能进 sink"，再逐步补上屏写入。
+> 阶段：上屏闭环已打通并真机复测通过（Core xUnit **45 项全绿**，Release 构建 0 警告 0 错误），当前为 beta.3 预览。
+> 本手册记录注册加载、按键分流、候选交互、上屏写入的现状，以及联调阶段逐一二分定位的根因与修复。
 
 ## 1. 前置条件（目标机）
 
@@ -12,7 +12,7 @@
   - 检查命令：`dotnet --list-runtimes`，应看到 `Microsoft.NETCore.App 8.0.x`。
 - 发布目录整体拷到目标机（路径含中文/空格也可，但**注册后不要移动目录**——注册表 InprocServer32 记录的是绝对路径，移动后需重新注册）。
 
-## 2. 发布目录产物（`dist\tsf-win-x64\`）
+## 2. 发布目录产物（每轮全新 `dist\tsf-vNN\`）
 
 框架依赖部署，目录内必须齐备：
 
@@ -29,6 +29,8 @@
 
 > 注意：comhost 加载 `AiIme.Tsf.dll` 时，运行时按**同名** `AiIme.Tsf.deps.json` / `AiIme.Tsf.runtimeconfig.json` 解析；
 > 这两份已在 RegisterTool 项目里固化为发布复制项，`dotnet publish` 会自动带出，无需手动补。
+>
+> 若 `publish` 报 `AiIme.Tsf.dll` 被另一进程占用（宿主进程仍加载着旧 comhost），不要覆盖旧目录；改发到全新 `dist\tsf-vNN` 再 `register`，注册表 InprocServer32 指向新目录即可。
 
 ## 3. 注册（管理员）
 
@@ -43,7 +45,7 @@
 ### 方式 B：直接运行注册工具
 
 ```powershell
-cd dist\tsf-win-x64
+cd dist\tsf-vNN
 .\AiIme.Tsf.RegisterTool.exe register
 ```
 
@@ -69,18 +71,13 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 # 末级 profile 键内 Description 应为 "ai-input 拼音"
 ```
 
-## 4. 加载与按键验证（第一阶段目标）
+## 4. 加载与按键验证
 
-### 4.0 开启临时调试日志
+### 4.0 调试日志
 
-默认关闭。在**注册工具/输入法被加载的同一会话环境**里设置环境变量后再启动输入框架：
+日志**默认开启**；设环境变量 `AIIME_TSF_DEBUG=0` 可关闭。无需为打开日志额外设变量。
 
-```powershell
-# 当前窗口生效（设好后重启 ctfmon / 注销重登，让加载 comhost 的进程继承到变量）
-$env:AIIME_TSF_DEBUG = "1"
-```
-
-日志位置：发布目录 `logs\tsf-debug.log`（comhost 同目录），UTF-8 追加，带时间戳与线程号。
+日志位置：`%LOCALAPPDATA%\AiIme\logs\tsf-debug.log`（UTF-8 追加，带时间戳与线程号），不在发布目录内。
 
 埋点位置与含义：
 
@@ -97,16 +94,16 @@ $env:AIIME_TSF_DEBUG = "1"
 
 > 联调稳定后这些埋点可整体移除（`TsfDebugLog` + 各处 `TsfDebugLog.Write`）。
 
-> 当前上屏链路：`OnKeyDown` → `CompositionState` 累积 → `RequestEditSession` → 会话内 `GetSelection` 取选区 → `StartComposition`/`SetText` 覆盖写 → `EndComposition`。
-> 本轮验证：服务被系统激活、按键回调进入 sink、会话内取选区写入拼音串、候选窗弹出、回车/数字选词上屏。
+> 当前上屏链路：`OnKeyDown` → `CompositionState` 累积（区间保持为空，不写拼音）→ 选词提交时 `RequestEditSession` → 会话内 `GetSelection` 取选区 → 空区间插入候选词 → 置光标到词尾 → `EndComposition`。
+> 验证点：服务被系统激活、按键进入 sink、候选窗弹出列候选、↑/↓ 移动与 ←/→ 翻页、回车/空格/数字选词上屏、上屏后退格可删正文。
 
 1. 打开记事本（或任意标准编辑框）。
 2. 语言栏切到"ai-input 拼音"（若未出现，注销/重登或重启 `ctfmon` 后再看；已通过 `Set-WinUserLanguageList` 加入中文输入方法列表）。
-3. 敲字母、退格、回车、数字、Esc，观察：
+3. 敲字母、退格、↑/↓、←/→、回车、空格、数字、Esc，观察：
    - 服务是否被激活（`Activate` 被调用）；
    - 按键是否进入 `KeyEventSink.OnKeyDown`；
-   - 候选窗是否在编辑框附近弹出、列出候选；
-   - 回车/数字选词是否上屏。
+   - 候选窗是否在编辑框附近弹出、列出候选，高亮随方向键移动、左右键翻页；
+   - 回车/空格/数字选词是否上屏，上屏后退格能否删掉正文。
 
 ## 5. 卸载（管理员）
 
@@ -129,7 +126,7 @@ $env:AIIME_TSF_DEBUG = "1"
 | 报缺 `Microsoft.NETCore.App` | 目标机未装 .NET 8 共享运行时 | 安装 .NET 8 Desktop/Shared Runtime x64 |
 | 报缺 `Microsoft.WindowsDesktop.App` | 被判定需桌面框架 | 安装 .NET 8 Desktop Runtime x64；或复查 runtimeconfig |
 | comhost 进程崩溃/退出 | vtable 错位、会话时序异常、原生库缺失 | 事件查看器查崩溃模块；核对 `e_sqlite3.dll` 在位 |
-| `logs\tsf-debug.log` 未生成 | 未设 `AIIME_TSF_DEBUG=1`，或加载 comhost 的进程未继承环境变量 | 设变量后重启 `ctfmon` 或注销重登；确认变量对当前会话/系统生效 |
+| `%LOCALAPPDATA%\AiIme\logs\tsf-debug.log` 未生成 | 日志写入被宿主进程权限拦截，或被 `AIIME_TSF_DEBUG=0` 关闭 | 确认环境变量未设为 0；检查 `%LOCALAPPDATA%\AiIme\logs` 目录可写；日志内部异常被吞掉，不影响主流程 |
 | 词典未召回候选 | `data\dict` 未随目录拷到目标机 | 核对 `data\dict\*.tsv` 在位；可用环境变量 `AIIME_DICT_DIR` 指定目录 |
 | 注册后移动了目录 | 注册表记录绝对路径，已失效 | 重新 `unregister` → 拷到新位置 → `register` |
 | `AddLanguageProfile` 报 `0x800706F4`（空引用指针）或直调返回随机 TSF 错误码 | 注册逻辑跑在 CLR 默认 **MTA** 线程，而 TSF profiles 对象为 Apartment 模型，跨套间编组把引用指针转发给代理 | 注册/卸载必须在显式 **STA 线程**上执行（`TsfRegistrar.RunOnStaThread`）；切勿在 MTA 主线程直接调 profiles 接口 |
@@ -154,28 +151,32 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2} -MaxEvents 10 |
 ## 7. 尚未实现 / 留待真机联调补全
 
 - **标准 TSF 候选元素登记**：`ITfCandidateListUIElement` + `ITfUIElementMgr.Begin/Update/EndUIElement` 尚未接入；当前候选窗为自绘原生 Win32 置顶窗，未纳入标准 UIElement 协议（不支持 UILess 宿主读取）。
-- **候选翻页 / 上下选择**：当前只高亮首项，数字 1–9 直选；无翻页、无方向键移动选中。
-- **composition 终止回调**：`ITfCompositionSink.OnCompositionTerminated` 尚未实现（外部终止区间时同步本地状态）。
+- **编辑器内拼音 inline 预览**：累积阶段刻意不把拼音写进 composition 区间（见 9.7），拼音与候选只在候选窗可见；待长生命周期区间模型与显示属性稳定后再补 preedit 写入。
+- **composition 显示属性**：`TF_ATTR_INPUT` / `GUID_PROP_COMPOSING` / guid atom / `ITfDisplayAttributeProvider` 未实现，宿主暂无输入态渲染。
+- **会话模型对齐 Weasel**：提交与结束区间仍在同一 SYNC 会话；未拆独立 `CInsertTextEditSession` / `CEndCompositionEditSession`，文本服务自身聚合 `ITfCompositionSink`、长生命周期 composition 模型尚未落地。
 - **上下文跨焦点重置**：`_committedWords` 上下文目前只在 sink 内存内维护，切换焦点 / 服务停用后是否重置未处理。
 - **跨应用稳定性**：不同编辑框（UWP/Chrome/记事本）的会话时序需现场逐一验证。
 
-> 编辑会话真实写入已落地：`EditSession.DoEditSession` 内 `GetSelection` 取范围 → `SetText` 覆盖写。
-> composition 区间生命周期已接入：首次输入 `StartComposition`，清空/结束时 `EndComposition`，引用由 `CompositionComposer` 跨会话持有。
-> 选词交互已接入：回车取首选、数字 1..9 选词、Esc 清空；候选上屏后调 `RecordCommit` 回写学习（选非首项记纠正权重）。
-> 自绘候选窗已接入：原生 Win32 置顶窗（GDI 绘制，不依赖 WPF/桌面运行时），列出候选、高亮首项，随按键更新；无候选或上屏后隐藏。
+> 编辑会话真实写入已落地：`EditSession.DoEditSession` 内 `GetSelection` 取范围 → 空区间插入候选词。
+> composition 区间生命周期已接入：首次输入 `StartComposition`，清空/结束时 `EndComposition`，引用由 `CompositionComposer` 跨会话持有；`CompositionSink.OnCompositionTerminated` 已实现最小回调，仅当被终止的就是当前持有区间时才清理本地引用。
+> 选词交互已接入：回车/空格提交高亮项、数字 1..9 按当前页选词、Esc 清空；候选上屏后调 `RecordCommit` 回写学习（选非首项记纠正权重）。
+> 自绘候选窗已接入：原生 Win32 置顶窗（GDI 绘制，不依赖 WPF/桌面运行时），列出候选、高亮当前项，随按键更新；无候选或上屏后隐藏。
 > 类别注册 `TFCAT_TIP_KEYBOARD` 已落地（`ITfCategoryMgr.RegisterCategory`，经 `TF_CreateCategoryMgr` 创建对象）。
 
 ### 7.1 当前按键交互（TSF 外壳）
 
 | 按键 | 行为 |
 |---|---|
-| 字母 A–Z | 累积拼音，拼音串写入 composition |
-| 退格 | 删一个拼音字母 |
-| 回车 | 取首选候选词上屏；无候选则上屏拼音串 |
-| 数字 1–9 | 选对应序号候选词上屏（选非首项记纠正） |
-| Esc | 清空 composition 与状态机 |
+| 字母 A–Z | 累积拼音；新输入重置高亮序号与页码 |
+| 退格 | 删一个拼音字母；无 composition 时放行，由宿主做原生删除 |
+| ↑ / ↓ | 当前页内上下移动高亮；越过末行向下翻页、退到首行之外向上翻页，翻页后高亮落邻页首/末行 |
+| ← / → | 上一页 / 下一页（每页 9 条），翻页后高亮落新页首行；单页候选时放行宿主 |
+| 回车 / 空格 | 提交当前高亮候选；无候选则上屏拼音串 |
+| 数字 1–9 | 按当前页行号选词上屏（行号映射到跨页绝对序号；选非首项记纠正） |
+| Esc | 清空 composition 与状态机，隐藏候选窗 |
+| Ctrl/Alt + 按键 | 组合快捷键透传宿主（Ctrl+A 全选 / C 复制 / V 粘贴 / Z 撤销等），不被当作拼音 |
 
-候选词上屏后经 `HabitLearner.RecordCommit(word, context, wasCorrection)` 回写词频与 n-gram；`PreviousWords` 取最近已上屏词序列。
+候选词上屏后经 `HabitLearner.RecordCommit(word, context, wasCorrection)` 回写词频与 n-gram；`PreviousWords` 取最近已上屏词序列。新输入、退格、Esc、上屏、失焦都会把高亮序号与页码重置回首项/首页。
 
 ## 8. 关键 GUID / 常量（核对过，勿凭记忆改）
 
@@ -258,10 +259,10 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
   - 结果按文本去重、按基础词频降序，`MaxRecall=300` 封顶。
 - 真实词典探针实测：`nihao`→你好（1）；`nih`→你好/泥灰岩（2）；`ni`→227；`wo`→42；单字母被封顶到 300。
 
-### 9.4 仍待复查的观察项
+### 9.4 早期观察项（已闭环）
 
-- 早期截图中首行高亮背景在、但高亮文字未见；v25 已在 `CandidateWnd: update count=… top=[…]` 日志记录前 3 条候选文本，真机复测时先核对 `Candidate[0].Text` 是否为空。
-- 编辑会话日志曾出现 `composing=False`，`StartComposition`/`SetText` 埋点行缺失，composition 区间引用跨按键保留情况待后续修生命周期时回看 `CompositionComposer` 与 `EditSession`。
+- ~~首行高亮背景在、高亮文字未见~~：后定位为内存 DC 未选中中文 stock 字体 + GDI 背景模式问题（见 9.5 前的候选窗文字修复），v38 复测首行蓝底白字正常。
+- ~~编辑会话 `composing=False`、区间引用跨按键保留存疑~~：随 9.6 区间生命周期排查与 9.7 空区间提交方案闭环；现区间归属按 `ITfContext` 绑定，跨宿主/失焦丢弃陈旧区间。
 
 ### 9.5 候选窗 WM_PAINT 无限重绘循环（v45 修复）
 
@@ -336,6 +337,27 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 **遗留 / 待办**
 
 - 编辑器内拼音 inline 预览仍未显示（当前刻意不写区间，避免再次扰动 composition）；后续在长生命周期区间模型稳定后再补 preedit 写入与 composition 显示属性。
-- 粘贴（Ctrl+V）已随快捷键透传，待真机确认；其余修饰组合（Shift+字母、Win 组合）未专门处理。
+- 粘贴（Ctrl+V）已随快捷键透传，真机确认正常；其余修饰组合（Shift+字母、Win 组合）未专门处理。
 - 提交与结束区间仍在同一 SYNC 会话；尚未对齐 Weasel 的独立结束会话、文本服务自身聚合 `ITfCompositionSink`、显示属性提供器。
+
+### 9.8 候选导航、分页与候选窗视觉（beta.3）
+
+**真机复测（记事本 + Edge 搜索栏）**：↑/↓ 行内移动高亮、←/→ 翻页、数字选词、回车/空格提交高亮项、上屏后退格删正文、Ctrl+A / Ctrl+V 透传均通过；无闪退。Core xUnit 45 项全绿，Release 构建 0 警告 0 错误。
+
+**改动要点（`KeyEventSink.cs` / `CandidateWindow.cs`）**
+
+- sink 新增 `_selectedIndex`（跨页高亮序号）与 `_pageOffset`（当前页起始偏移）：
+  - ↑/↓ 在当前页内上下移动；高亮越过页首/页末时联动翻页；
+  - ←/→ 按每页 9 条翻页，翻页后高亮落在新页首行；单页候选时左右键放行宿主；
+  - 回车/空格提交当前高亮项（不再固定首选）；数字 1–9 按当前页行号映射到跨页绝对序号；
+  - `OnTestKeyDown` 接管判定与 `OnKeyDown` 实际消费保持一致；新输入、退格、Esc、上屏、失焦均重置高亮序号与页码。
+- 候选窗视觉：
+  - 改用雅黑逻辑字体（`CreateFontW`，字符高 −16），行距 22 → 28px，左右内边距加宽；
+  - 窗宽由 `GetTextExtentPoint32W` 按真实字形测量当前页最宽一行，替代原先按字符数 × 估算；4 字及以上长短语不再被裁；宽度上限为屏宽 −16，避免溢出右边界；
+  - 候选切片 `Skip(_pageOffset).Take(MaxRows)`，序号标签显示绝对序号；重绘签名含页码 + 高亮 + 文本，三者不变则不刷新。
+
+**遗留**
+
+- PgUp / PgDn 翻页快捷键未接（当前仅方向键翻页）；标准 UIElement 候选登记未做；inline 预览与 composition 显示属性见第 7 节。
+
 
