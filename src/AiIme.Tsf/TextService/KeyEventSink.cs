@@ -40,6 +40,12 @@ public sealed class KeyEventSink : ITfKeyEventSink
     /// <summary>当前页在候选列表中的起始偏移。</summary>
     private int _pageOffset;
 
+    /// <summary>英文（ASCII）直输模式：开启后字母/数字/空格/回车一律放行宿主，不进拼音累积。</summary>
+    private bool _englishMode;
+
+    /// <summary>Shift 是否为独立敲击（未与其它键组合）；用于在 keyup 判定是否切换中英。</summary>
+    private bool _shiftTap;
+
     private const int VkControl = 0x11;
     private const int VkMenu = 0x12;
     private const short KeyDownMask = unchecked((short)0x8000);
@@ -50,6 +56,11 @@ public sealed class KeyEventSink : ITfKeyEventSink
     private const int VkRight = 0x27;
     private const int VkPrior = 0x21; // VK_PRIOR (PgUp)
     private const int VkNext = 0x22;  // VK_NEXT (PgDn)
+    private const int VkHome = 0x24; // VK_HOME
+    private const int VkEnd = 0x23;  // VK_END
+    private const int VkShift = 0x10;
+    private const int VkLShift = 0xA0;
+    private const int VkRShift = 0xA1;
     private const int VisibleRows = 9;
 
     [DllImport("user32.dll")]
@@ -99,14 +110,24 @@ public sealed class KeyEventSink : ITfKeyEventSink
     }
 
     /// <summary>测试阶段是否由本输入法接管该按键（与 OnKeyDown 实际能否消费保持一致）。</summary>
-    private bool TestConsume(int vk) => vk switch
+    private bool TestConsume(int vk)
     {
-        0x08 or 0x1B or 0x0D or 0x20 => _composition.IsComposing,
-        VkUp or VkDown => _composition.IsComposing && _composition.Candidates.Count > 1,
-        VkLeft or VkRight or VkPrior or VkNext => _composition.IsComposing && _composition.Candidates.Count > VisibleRows,
-        >= 0x31 and <= 0x39 => _composition.IsComposing && _pageOffset + vk - 0x31 < _composition.Candidates.Count,
-        _ => IsLetterVk(vk),
-    };
+        // Shift 始终放行宿主（修饰键状态不能被我方吃掉）；中英切换在 keyup 判定独立敲击后做。
+        if (IsShiftVk(vk)) return false;
+
+        // 英文直输模式：字母/数字/空格/回车/退格/方向键一律放行宿主原生输入。
+        if (_englishMode) return false;
+
+        return vk switch
+        {
+            0x08 or 0x1B or 0x0D or 0x20 => _composition.IsComposing,
+            VkUp or VkDown => _composition.IsComposing && _composition.Candidates.Count > 1,
+            VkLeft or VkRight or VkPrior or VkNext => _composition.IsComposing && _composition.Candidates.Count > VisibleRows,
+            VkHome or VkEnd => _composition.IsComposing && _composition.Candidates.Count > 0,
+            >= 0x31 and <= 0x39 => _composition.IsComposing && _pageOffset + vk - 0x31 < _composition.Candidates.Count,
+            _ => IsLetterVk(vk),
+        };
+    }
 
     public int OnTestKeyUp(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
     {
@@ -123,6 +144,9 @@ public sealed class KeyEventSink : ITfKeyEventSink
         {
             int vk = (int)wparam;
 
+            // 非 Shift 键按下即说明 Shift 不是独立敲击，keyup 不再触发中英切换。
+            if (!IsShiftVk(vk)) _shiftTap = false;
+
             // Ctrl/Alt 组合快捷键透传给宿主，不作为拼音/选词处理。
             if (IsControlOrAltDown())
             {
@@ -136,6 +160,38 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
             switch (vk)
             {
+                case VkShift or VkLShift or VkRShift:
+                    // 仅记录敲击意图，不接管按键；切换在 OnKeyUp 判定为独立敲击后执行。
+                    _shiftTap = true;
+                    eaten = false;
+                    action = "Shift";
+                    break;
+
+                case VkHome:
+                    if (!_composition.IsComposing || _composition.Candidates.Count == 0)
+                    {
+                        pfEaten = 0;
+                        return HResult.S_OK;
+                    }
+                    _selectedIndex = 0;
+                    _pageOffset = 0;
+                    eaten = true;
+                    action = "Home";
+                    break;
+
+                case VkEnd:
+                    if (!_composition.IsComposing || _composition.Candidates.Count == 0)
+                    {
+                        pfEaten = 0;
+                        return HResult.S_OK;
+                    }
+                    int last = _composition.Candidates.Count - 1;
+                    _selectedIndex = last;
+                    _pageOffset = (last / VisibleRows) * VisibleRows;
+                    eaten = true;
+                    action = "End";
+                    break;
+
                 case VkUp:
                     if (!_composition.IsComposing || _composition.Candidates.Count <= 1)
                     {
@@ -231,6 +287,14 @@ public sealed class KeyEventSink : ITfKeyEventSink
                     break;
 
                 default:
+                    // 英文直输模式：字母/数字等一律放行宿主，不进拼音累积。
+                    if (_englishMode)
+                    {
+                        eaten = false;
+                        action = "En-Passthrough";
+                        break;
+                    }
+
                     // 数字 1..9 选词（VK 0x31..0x39）；按当前页行号映射到绝对序号。
                     if (vk is >= 0x31 and <= 0x39)
                     {
@@ -269,9 +333,10 @@ public sealed class KeyEventSink : ITfKeyEventSink
     /// <summary>按当前状态机同步候选窗：有候选则在光标附近显示，否则隐藏。</summary>
     private void RefreshCandidateWindow(IntPtr pic)
     {
-        var pos = GetCaretInfo(pic);
         if (_composition.IsComposing && _composition.Candidates.Count > 0)
         {
+            // 仅在需要显示候选时才取光标，避免无候选（如退格到空、Esc 后）也跑一次同步编辑会话。
+            var pos = GetCaretInfo(pic);
             int count = _composition.Candidates.Count;
             _pageOffset = Math.Clamp(_pageOffset, 0, Math.Max(0, count - 1));
             int sel = Math.Clamp(_selectedIndex, _pageOffset, Math.Min(count, _pageOffset + VisibleRows) - 1);
@@ -352,7 +417,25 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
     public int OnKeyUp(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
     {
-        TsfDebugLog.Write("OnKeyUp", $"vk=0x{(int)wparam:X2}");
+        int vk = (int)wparam;
+        TsfDebugLog.Write("OnKeyUp", $"vk=0x{vk:X2}");
+
+        // Shift 独立敲击（未与其它键组合）：切换中文/英文直输模式。
+        if (IsShiftVk(vk) && _shiftTap)
+        {
+            _shiftTap = false;
+            _englishMode = !_englishMode;
+
+            // 切换时丢弃未上屏的中文输入与候选窗；若持有区间则结束它。
+            if (_composition.IsComposing) _composition.Clear();
+            _selectedIndex = 0;
+            _pageOffset = 0;
+            _candidateWindow.Hide();
+            if (_composer.HasComposition) _composer.CommitText(pic, string.Empty, 0);
+
+            TsfDebugLog.Write("OnKeyUp", $"Shift toggle englishMode={_englishMode}");
+        }
+
         pfEaten = 0;
         return HResult.S_OK;
     }
@@ -397,6 +480,8 @@ public sealed class KeyEventSink : ITfKeyEventSink
     }
 
     private static bool IsLetterVk(int vk) => vk is >= 0x41 and <= 0x5A;
+
+    private static bool IsShiftVk(int vk) => vk is VkShift or VkLShift or VkRShift;
 
     private static char VkToChar(int vk) => IsLetterVk(vk) ? (char)vk : '\0';
 }

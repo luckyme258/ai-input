@@ -75,7 +75,7 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 
 ### 4.0 调试日志
 
-日志**默认开启**；设环境变量 `AIIME_TSF_DEBUG=0` 可关闭。无需为打开日志额外设变量。
+日志**默认关闭**；设环境变量 `AIIME_TSF_DEBUG=1` 才开启。每条日志都是一次同步文件写入（lock + AppendAllText），开启后打字会有明显卡顿，仅排查时临时打开。
 
 日志位置：`%LOCALAPPDATA%\AiIme\logs\tsf-debug.log`（UTF-8 追加，带时间戳与线程号），不在发布目录内。
 
@@ -126,7 +126,7 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 | 报缺 `Microsoft.NETCore.App` | 目标机未装 .NET 8 共享运行时 | 安装 .NET 8 Desktop/Shared Runtime x64 |
 | 报缺 `Microsoft.WindowsDesktop.App` | 被判定需桌面框架 | 安装 .NET 8 Desktop Runtime x64；或复查 runtimeconfig |
 | comhost 进程崩溃/退出 | vtable 错位、会话时序异常、原生库缺失 | 事件查看器查崩溃模块；核对 `e_sqlite3.dll` 在位 |
-| `%LOCALAPPDATA%\AiIme\logs\tsf-debug.log` 未生成 | 日志写入被宿主进程权限拦截，或被 `AIIME_TSF_DEBUG=0` 关闭 | 确认环境变量未设为 0；检查 `%LOCALAPPDATA%\AiIme\logs` 目录可写；日志内部异常被吞掉，不影响主流程 |
+| `%LOCALAPPDATA%\AiIme\logs\tsf-debug.log` 未生成 | 日志默认关闭（未设 `AIIME_TSF_DEBUG=1`），或写入被宿主进程权限拦截 | 排查时先设 `AIIME_TSF_DEBUG=1` 并重启加载 comhost 的进程；检查日志目录可写；日志内部异常被吞掉，不影响主流程 |
 | 词典未召回候选 | `data\dict` 未随目录拷到目标机 | 核对 `data\dict\*.tsv` 在位；可用环境变量 `AIIME_DICT_DIR` 指定目录 |
 | 注册后移动了目录 | 注册表记录绝对路径，已失效 | 重新 `unregister` → 拷到新位置 → `register` |
 | `AddLanguageProfile` 报 `0x800706F4`（空引用指针）或直调返回随机 TSF 错误码 | 注册逻辑跑在 CLR 默认 **MTA** 线程，而 TSF profiles 对象为 Apartment 模型，跨套间编组把引用指针转发给代理 | 注册/卸载必须在显式 **STA 线程**上执行（`TsfRegistrar.RunOnStaThread`）；切勿在 MTA 主线程直接调 profiles 接口 |
@@ -171,6 +171,8 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2} -MaxEvents 10 |
 | 退格 | 删一个拼音字母；无 composition 时放行，由宿主做原生删除 |
 | ↑ / ↓ | 当前页内上下移动高亮；越过末行向下翻页、退到首行之外向上翻页，翻页后高亮落邻页首/末行 |
 | ← / →、PgUp / PgDn | 上一页 / 下一页（每页 9 条），翻页后高亮落新页首行；单页候选时放行宿主 |
+| Home / End | 高亮跳到首个 / 末个候选，末项自动对齐到所在页首行 |
+| Shift（独立敲击） | 切换中文拼音 / 英文直输；英文模式下字母、数字、空格、回车放行宿主原生输入；Shift+字母组合不触发切换 |
 | 回车 / 空格 | 提交当前高亮候选；无候选则上屏拼音串 |
 | 数字 1–9 | 按当前页行号选词上屏（行号映射到跨页绝对序号；选非首项记纠正） |
 | Esc | 清空 composition 与状态机，隐藏候选窗 |
@@ -359,5 +361,19 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 **遗留**
 
 - PgUp / PgDn 已接翻页（与 ←/→ 共用同一套页偏移逻辑，左右箭头保留）；标准 UIElement 候选登记未做；inline 预览与 composition 显示属性见第 7 节。
+
+### 9.9 Home/End 跳转、Shift 中英切换与按键卡顿（v54）
+
+**新增交互**
+
+- `Home(0x24)`：高亮回到首项，页码回首页；`End(0x23)`：高亮跳到末项，页码对齐到末项所在页首行。
+- `Shift` 独立敲击切换中文拼音 / 英文直输：英文模式下字母、数字、空格、回车、退格一律放行宿主原生输入；用 `OnKeyDown` 标记 `_shiftTap`，若期间按下其它键则清除，`OnKeyUp` 仅在独立敲击时翻转 `_englishMode`，避免 Shift+字母组合误切换。切换时丢弃未上屏的中文输入并结束残留区间。
+
+**卡顿优化（第一轮）**
+
+- 日志默认关闭：旧实现「不等于 0 即开启」，未设变量时也默认写日志，每个按键十余次同步 `AppendAllText`（lock + 磁盘写入），是输入卡顿的重要原因；改为只有 `AIIME_TSF_DEBUG=1` 才开启。
+- 旧逻辑累积阶段每按一个字母都开一次 `Preedit` 同步编辑会话（区间保持为空、会话内不写文本，属空跑）；改为已有区间后累积阶段不再开会话，只有最终上屏才开 `Commit` 会话。每个字母少一次同步 TSF 会话 + 一次 `GetSelection/InWriteSession`。
+- 剩余待查卡顿点：`CandidateRanker.Rank` 对每个候选逐条查 SQLite（词频 / bigram / trigram），候选最多 300 条时按键会触发多次数据库往返；后续可改为一次批量读出词频表再内存打分。
+
 
 

@@ -133,7 +133,12 @@ public sealed class CompositionComposer
             RunSession(context, SessionMode.Ensure, string.Empty);
         }
 
-        RunSession(context, finalCommit ? SessionMode.Commit : SessionMode.Preedit, text);
+        // 累积阶段区间刻意保持为空（不写拼音）：已有区间时无需再开 Preedit 会话空跑，
+        // 避免每个字母都额外走一次同步编辑会话造成卡顿；只有最终上屏才开 Commit 会话写入。
+        if (finalCommit)
+        {
+            RunSession(context, SessionMode.Commit, text);
+        }
         TsfDebugLog.Write("Commit", $"dispatched text='{text}' candidates={candidateCount} final={finalCommit}");
     }
 
