@@ -290,15 +290,26 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 - 建区间数量明显多于 `OnCompositionTerminated` 回调数量：大量区间未收到终止通知，本地 `_composition` 指针在「存活/已死」之间复用；写进陈旧/脱锚区间的文本在 `EndComposition` 后被宿主丢弃；
 - 光标矩形在连续失败后停在同一位置不再前进，选区/落点状态随失败累积失同步。
 
+**v46 复测新增观测（Edge 搜索栏 + 记事本，交替输入）**
+
+- 所有编辑会话 `RequestEditSession` 返回 `session=0`（TF_SYNC，同步跑完），**未被降级为异步**；会话内无托管异常，返回 HRESULT 全 `S_OK`。排除「会话 CCW 在回调前被回收」「SYNC 被 comhost 降级」两条假设。
+- Edge 搜索栏同样间歇（1 成、3–6 败），成功率略高于记事本；**排除 Store 记事本宿主兼容方向**，问题在我方外壳。
+- 成功 / 失败与「提交时复用的区间是否已含 preedit 文本」强相关：
+  - **成功**：`Ensure` 刚建的是空区间 → `Commit` 直接把候选词写进这个空区间（插入 1 字符），固化进正文；
+  - **失败**：`Ensure` → `Preedit` 已把 `ni` 写进同一区间 → `Commit` 再用 `SetText` 把 2 字符 preedit 替换成 1 字符候选词；会话内回读非空、`EndComposition S_OK`，但文本在结束区间后被宿主丢弃。
+- 失败块在 preedit 与 commit 之间**未收到** `OnCompositionTerminated`，区间指针仍被本地持有；不是外部提前终止，而是「对已含 interim 文本的区间做替换写入」未被宿主固化。
+- 后置光标矩形在提交后取到的是另一个宿主的 `hwnd`（记事本/Edge 视图串扰），选区/落点状态跨宿主失同步；协调器未按 `ITfContext` 区分持有区间归属（对照 Weasel 保留 `_pEditSessionContext`）。
+
 **已核对排除**
 
 - `ITfContext` / `ITfRange` / `ITfComposition` / `ITfContextComposition` / `ITfInsertAtSelection` / `ITfCompositionSink` 的 IID 与 vtable 槽位顺序均与 TLB 镜像、windows-rs 元数据一致，不存在调度错位；
+- `TF_SELECTION { range, ase, fInterimChar }` 结构体布局与原生一致；
 - 所有返回 HRESULT 的回调方法均已标 `[PreserveSig]`；编辑会话内无托管异常抛出。
 
 **后续方向（待真机验证）**
 
-- 对齐 Weasel：一次输入 burst 内只建一条长生命周期 composition，后续按键复用同一 `_pComposition` 更新 preedit，仅最终上屏才 `EndComposition`；避免每次按键新建/回收区间；
-- 补 composition 显示属性（`TF_ATTR_INPUT` / `GUID_PROP_COMPOSING`），让宿主按输入态渲染 preedit；
-- 提交前校验本地持有区间是否仍有效；失效区间不要复用其 GetRange 写入；
-- 复核 .NET CCW/RCW 生命周期：composition 出参引用计数、sink CCW 存活、会话 CCW 的 AddRef/Release 配对。
+- 对齐 Weasel 长生命周期模型：一次输入 burst 内只建一条 composition 并保留所属 `ITfContext`，后续按键复用同一区间更新 preedit；提交与结束区间拆成独立会话（`CInsertTextEditSession` 只写+置光标，`CEndCompositionEditSession` 再 `EndComposition`）；结束前先 `_FinalizeComposition` 丢本地所有权，避免同步终止回调误清新区间；
+- 提交前校验持有区间仍属于当前上下文；跨宿主/上下文切换时丢弃陈旧区间，不复用其 GetRange 写入；
+- 补 composition 显示属性（`TF_ATTR_INPUT` / `GUID_PROP_COMPOSING` / guid atom），让宿主按输入态渲染 preedit；
+- 复核替换写入路径：preedit 已含文本时 `SetText` 的区间锚点是否随替换收缩，必要时对照 Weasel 的 range 折叠/ShiftStart 处理。
 

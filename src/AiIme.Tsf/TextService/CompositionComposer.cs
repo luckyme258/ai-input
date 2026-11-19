@@ -129,8 +129,9 @@ public sealed class CompositionComposer
                 _clientId,
                 sessionPtr,
                 TsfGuids.TF_ES_SYNC | TsfGuids.TF_ES_READWRITE,
-                out _);
-            TsfDebugLog.Write("Commit", $"RequestEditSession mode={mode} HRESULT=0x{hr:X8}");
+                out int phrsession);
+            // phrsession：TF_SYNC=0（会话已在回调内同步跑完）；TF_S_ASYNC=1（会话异步排队，回调晚于本调用返回）。
+            TsfDebugLog.Write("Commit", $"RequestEditSession mode={mode} hr=0x{hr:X8} session={phrsession}");
         }
         finally
         {
