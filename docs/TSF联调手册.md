@@ -391,8 +391,8 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 **词典扩词与过滤（Core 数据层）**
 
 - 通用词表换用 jieba `dict.txt.big` 大词表 + mozillazg 字拼音表，经 `tools/Convert-CommonDict.py` 重生成：词频 ≥20、1–6 字、同词去重保留最高词频、剥声调、ü→v、多音字取首读音。
-- 链路过滤：繁体剔除（zhconv 转简体不一致即跳过）→ 合规剔除表（`--blocklist` 命中即跳过）。成品 `common-mit.tsv` 约 7.87 万简体词条；`hsk-basic.tsv` 约 1.26 万条，两份共用同一份剔除表。
-- 合规分类口径、剔除表机制与复审流程见 `docs/词典合规审核手册.md`；剔除表与候选清单位于 `data/local/`（gitignore，不入库、不分发）。
+- 链路过滤：繁体剔除（zhconv 转简体不一致即跳过）→ 合规剔除表（`--blocklist` 命中即跳过）。成品 `common-mit.tsv` 约 7.82 万简体词条；`hsk-basic.tsv` 约 1.14 万条，两份共用同一份剔除表。
+- 合规分类口径、剔除表机制与复审流程见 `docs/词典合规审核手册.md`；政府政务类首轮已复核：通用治理/法律/学科抽象词保留，机构层级/历史政权/外国政府机构专名与贬称身份剔除。剔除表与候选清单位于 `data/local/`（gitignore，不入库、不分发）。
 
 **排序批量读库（`CandidateRanker` / `IUserProfileStore` / `SqliteProfileStore`）**
 

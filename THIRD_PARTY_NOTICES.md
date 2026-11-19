@@ -21,7 +21,7 @@
 | 数据 | 内容 | 协议 | 义务 | 状态 |
 |---|---|---|---|---|
 | drkameleon/complete-hsk-vocabulary | 11470 词条 + 数字声调拼音 + 频率，已转为 `data/dict/hsk-basic.tsv` | MIT | 保留版权与 MIT 声明（见 `data/dict/LICENSE.complete-hsk-vocabulary.txt`） | **已引入** |
-| fxsjy/jieba | 大词表 `dict.txt.big` + 词频（词表部分），取词频 ≥20、1–6 字，去重并剔除繁体，已转为 `data/dict/common-mit.tsv`（约 7.9 万简体词条） | MIT | 保留版权与 MIT 声明（见 `data/dict/LICENSE.jieba.txt`） | **已引入** |
+| fxsjy/jieba | 大词表 `dict.txt.big` + 词频（词表部分），取词频 ≥20、1–6 字，去重、剔繁体并按合规剔除表过滤，已转为 `data/dict/common-mit.tsv`（约 7.82 万简体词条） | MIT | 保留版权与 MIT 声明（见 `data/dict/LICENSE.jieba.txt`） | **已引入** |
 | mozillazg/pinyin-data | 字→拼音、多音字映射，作为通用词表注音底座 | MIT | 保留署名与 MIT 声明（见 `data/dict/LICENSE.pinyin-data.txt`） | **已引入** |
 | CC-CEDICT | 词条 + 拼音（英文释义可弃） | CC BY-SA 4.0 | 署名；衍生词典同 BY-SA 开放 | 待评估，纳入须单独标注 |
 | rime-ice 雾凇拼音 | 简体词库 + 词频 | GPL-3.0 | 衍生词库须 GPL-3.0 | 原型备选，注意与 AGPL 边界 |

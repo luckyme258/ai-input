@@ -74,6 +74,7 @@ def main() -> None:
     ap.add_argument("--keep-traditional", action="store_true",
                     help="保留繁体词条（默认剔除）")
     ap.add_argument("--blocklist", help="逐词一行的剔除表，命中即跳过（合规审核用）")
+    ap.add_argument("--extra", help="补充词表 TSV（word<TAB>pinyin<TAB>initials<TAB>freq），合并入词库")
     args = ap.parse_args()
 
     char_py = load_char_pinyin(args.pinyin)
@@ -146,6 +147,27 @@ def main() -> None:
                 by_word[word] = row
 
     rows = sorted(by_word.items(), key=lambda kv: kv[1][2], reverse=True)
+
+    if args.extra:
+        extra_added = 0
+        with open(args.extra, encoding="utf-8") as fh:
+            for raw in fh:
+                p = raw.rstrip("\n").split("\t")
+                if len(p) < 4:
+                    continue
+                word, pinyin, initials, fstr = p[0], p[1], p[2], p[3]
+                if word in blocklist or not word:
+                    continue
+                try:
+                    freq = float(fstr)
+                except ValueError:
+                    continue
+                existing = by_word.get(word)
+                if existing is None or freq > existing[2]:
+                    by_word[word] = (pinyin, initials, freq)
+                    extra_added += 1
+        print(f"extra: {extra_added} rows from {args.extra}")
+        rows = sorted(by_word.items(), key=lambda kv: kv[1][2], reverse=True)
 
     with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
         for word, (pinyin, initials, freq) in rows:
