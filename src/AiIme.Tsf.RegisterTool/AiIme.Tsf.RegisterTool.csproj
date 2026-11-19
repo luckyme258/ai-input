@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <RootNamespace>AiIme.Tsf.RegisterTool</RootNamespace>
+    <Product>ai-input</Product>
+    <AssemblyTitle>ai-input TSF registration tool</AssemblyTitle>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Copyright>Copyright (C) 2026 AiIme contributors. Licensed under AGPL-3.0-or-later.</Copyright>

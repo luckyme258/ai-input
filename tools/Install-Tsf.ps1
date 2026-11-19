@@ -1,4 +1,4 @@
-﻿# Register / unregister the AiIme TSF text service (administrator required).
+﻿# Register / unregister the ai-input TSF text service (administrator required).
 # Usage (elevated PowerShell):
 #   .\tools\Install-Tsf.ps1 -Action Register
 #   .\tools\Install-Tsf.ps1 -Action Unregister

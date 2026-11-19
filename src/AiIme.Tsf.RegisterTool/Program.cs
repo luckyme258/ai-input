@@ -32,7 +32,7 @@ if (!File.Exists(comhost))
     return 2;
 }
 
-var registrar = new TsfRegistrar(comhost, "AiIme 拼音");
+var registrar = new TsfRegistrar(comhost, "ai-input 拼音");
 
 try
 {

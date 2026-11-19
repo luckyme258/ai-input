@@ -47,7 +47,7 @@ cd dist\tsf-win-x64
 .\AiIme.Tsf.RegisterTool.exe register
 ```
 
-成功输出：`注册完成。可在 控制面板\时钟和区域\语言\键盘 和语言栏中查看 AiIme 拼音。`
+成功输出：`注册完成。可在 控制面板\时钟和区域\语言\键盘 和语言栏中查看 ai-input 拼音。`
 
 注册做了三件事：
 1. 直写 `HKLM\SOFTWARE\Classes\CLSID\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7c8f90}\InprocServer32` → comhost.dll 绝对路径，`ThreadingModel=Both`；
@@ -66,7 +66,7 @@ Get-ItemProperty "HKLM:\SOFTWARE\Classes\CLSID\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7c
 
 ```powershell
 Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7c8f90}\LanguageProfile" -Recurse
-# 末级 profile 键内 Description 应为 "AiIme 拼音"
+# 末级 profile 键内 Description 应为 "ai-input 拼音"
 ```
 
 ## 4. 加载与按键验证（第一阶段目标）
@@ -101,7 +101,7 @@ $env:AIIME_TSF_DEBUG = "1"
 > 本轮验证：服务被系统激活、按键回调进入 sink、会话内取选区写入拼音串、候选窗弹出、回车/数字选词上屏。
 
 1. 打开记事本（或任意标准编辑框）。
-2. 语言栏切到"AiIme 拼音"（若未出现，注销/重登或重启 `ctfmon` 后再看；已通过 `Set-WinUserLanguageList` 加入中文输入方法列表）。
+2. 语言栏切到"ai-input 拼音"（若未出现，注销/重登或重启 `ctfmon` 后再看；已通过 `Set-WinUserLanguageList` 加入中文输入方法列表）。
 3. 敲字母、退格、回车、数字、Esc，观察：
    - 服务是否被激活（`Activate` 被调用）；
    - 按键是否进入 `KeyEventSink.OnKeyDown`；
@@ -124,7 +124,7 @@ $env:AIIME_TSF_DEBUG = "1"
 |---|---|---|
 | 注册工具提示"未找到 comhost" | 发布目录缺 `AiIme.Tsf.comhost.dll` | 重新 `dotnet publish`，核对第 2 节目录清单 |
 | 写 HKLM / profile 失败（HRESULT 非 0） | 未以管理员运行 | 用管理员 PowerShell 重跑注册 |
-| 语言栏看不到 AiIme 拼音 | profile 未注册成功 / 缓存未刷新 | 复核注册表 CLSID 项；注销重登或重启 `ctfmon.exe` |
+| 语言栏看不到 ai-input 拼音 | profile 未注册成功 / 缓存未刷新 | 复核注册表 CLSID 项；注销重登或重启 `ctfmon.exe` |
 | 切到该输入法后敲键无反应 | comhost 加载失败 / 运行时缺失 | 见下两条；事件查看器→应用程序日志查 .NET / COM 报错 |
 | 报缺 `Microsoft.NETCore.App` | 目标机未装 .NET 8 共享运行时 | 安装 .NET 8 Desktop/Shared Runtime x64 |
 | 报缺 `Microsoft.WindowsDesktop.App` | 被判定需桌面框架 | 安装 .NET 8 Desktop Runtime x64；或复查 runtimeconfig |

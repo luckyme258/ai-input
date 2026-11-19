@@ -25,7 +25,7 @@ public sealed class TsfRegistrar
 
     /// <param name="comhostPath">AiIme.Tsf.comhost.dll 的绝对路径（与 dll/runtimeconfig 同目录）。</param>
     /// <param name="description">语言 profile 显示名。</param>
-    public TsfRegistrar(string comhostPath, string description = "AiIme 拼音")
+    public TsfRegistrar(string comhostPath, string description = "ai-input 拼音")
     {
         _comhostPath = comhostPath ?? throw new ArgumentNullException(nameof(comhostPath));
         _description = description ?? throw new ArgumentNullException(nameof(description));

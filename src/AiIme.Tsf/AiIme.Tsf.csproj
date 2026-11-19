@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <RootNamespace>AiIme.Tsf</RootNamespace>
+    <Product>ai-input</Product>
+    <AssemblyTitle>ai-input TSF text service</AssemblyTitle>
     <Copyright>Copyright (C) 2026 AiIme contributors. Licensed under AGPL-3.0-or-later.</Copyright>
 
     <!--

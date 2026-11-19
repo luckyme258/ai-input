@@ -1,7 +1,7 @@
 <Window x:Class="AiIme.Shell.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="AiIme" Width="560" Height="380"
+        Title="ai-input" Width="560" Height="380"
         WindowStyle="SingleBorderWindow" Topmost="True"
         Background="#F5F6F8" FontFamily="Microsoft YaHei UI" FontSize="14">
     <Grid Margin="12">
