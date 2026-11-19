@@ -5,7 +5,6 @@ using AiIme.Core.Models;
 using AiIme.Tsf.Com;
 
 namespace AiIme.Tsf.TextService;
-
 /// <summary>
 /// TSF 按键事件接收器。COM 回调在此实现，按键分流委托给纯托管的
 /// <see cref="CompositionState"/>；变动后通过 <see cref="CompositionComposer"/>
@@ -34,6 +33,17 @@ public sealed class KeyEventSink : ITfKeyEventSink
     /// <summary>最近一次按键携带的 ITfContext 指针（焦点丢失结束 composition 时复用）。</summary>
     private IntPtr _lastPic;
 
+    private const int VkControl = 0x11;
+    private const int VkMenu = 0x12;
+    private const short KeyDownMask = unchecked((short)0x8000);
+
+    [DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
+
+    /// <summary>Ctrl 或 Alt 处于按下状态；这类组合快捷键（Ctrl+A/C/V/Z 等）必须透传给宿主。</summary>
+    private static bool IsControlOrAltDown() =>
+        (GetKeyState(VkControl) & KeyDownMask) != 0 || (GetKeyState(VkMenu) & KeyDownMask) != 0;
+
     public KeyEventSink(CompositionState composition, CompositionComposer composer, HabitLearner learner, uint clientId)
     {
         _composition = composition ?? throw new ArgumentNullException(nameof(composition));
@@ -61,8 +71,10 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
     public int OnTestKeyDown(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
     {
-        // 探测阶段：字母、退格、Esc、回车、数字由本输入法接管（仅在有 composition 时）。
-        pfEaten = Consumes((int)wparam) ? 1 : 0;
+        // 探测阶段：字母、退格、Esc、回车、数字由本输入法接管（仅在有 composition 时）；
+        // Ctrl/Alt 组合快捷键不接管，透传给宿主（全选/复制/粘贴/撤销等）。
+        bool consume = !IsControlOrAltDown() && Consumes((int)wparam);
+        pfEaten = consume ? 1 : 0;
         TsfDebugLog.Write("OnTestKeyDown", $"vk=0x{(int)wparam:X2} eat={pfEaten}");
         return HResult.S_OK;
     }
@@ -81,6 +93,15 @@ public sealed class KeyEventSink : ITfKeyEventSink
         try
         {
             int vk = (int)wparam;
+
+            // Ctrl/Alt 组合快捷键透传给宿主，不作为拼音/选词处理。
+            if (IsControlOrAltDown())
+            {
+                TsfDebugLog.Write("OnKeyDown", $"shortcut vk=0x{vk:X2} passthrough");
+                pfEaten = 0;
+                return HResult.S_OK;
+            }
+
             bool eaten;
             string action;
 

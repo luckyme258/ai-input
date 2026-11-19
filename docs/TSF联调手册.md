@@ -313,3 +313,24 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 - 补 composition 显示属性（`TF_ATTR_INPUT` / `GUID_PROP_COMPOSING` / guid atom），让宿主按输入态渲染 preedit；
 - 复核替换写入路径：preedit 已含文本时 `SetText` 的区间锚点是否随替换收缩，必要时对照 Weasel 的 range 折叠/ShiftStart 处理。
 
+### 9.7 v47 突破：保持区间为空直到提交，上屏与退格恢复稳定
+
+**真机复测（记事本 + Edge 搜索栏）**：连测十几次，候选词上屏**基本每次成功**；上屏后退格**可以删除**。此前提的「间歇成功、退格删不掉」主线缺陷闭环。
+
+**结论（对照 v46 收窄规律）**
+
+- 根因确认：累积阶段把拼音 interim 文本写进 composition 区间后，提交时对这个已含文本的区间做替换写入，结束区间后文本被宿主丢弃；本地回读非空、`EndComposition S_OK` 是表象。
+- 处置：累积阶段不再向 composition 区间写拼音（inline 预览暂时不进编辑器，候选窗照常显示拼音与候选）；区间保持为空，直到选词提交才一次性写入候选词，走已被证明可靠的「空区间插入」路径。
+- 配套加固：持有区间绑定所属 `ITfContext`，跨宿主/失焦切换时丢弃陈旧区间，不复用其 GetRange 写入。
+
+**本轮新增修复：Ctrl/Alt 组合快捷键透传**
+
+- 现象：Ctrl+A 全选无效——字母 A（0x41）被 `Consumes` 判为可接管，`OnKeyDown` 当作拼音累积并吃掉，宿主收不到快捷键。
+- 处置：`OnTestKeyDown` / `OnKeyDown` 先用 `GetKeyState(VK_CONTROL/VK_MENU)` 判断修饰键；Ctrl/Alt 按下时 `pfEaten=0` 直接透传宿主，不进入拼音/选词分流。覆盖 Ctrl+A/C/V/Z 等。
+
+**遗留 / 待办**
+
+- 编辑器内拼音 inline 预览仍未显示（当前刻意不写区间，避免再次扰动 composition）；后续在长生命周期区间模型稳定后再补 preedit 写入与 composition 显示属性。
+- 粘贴（Ctrl+V）已随快捷键透传，待真机确认；其余修饰组合（Shift+字母、Win 组合）未专门处理。
+- 提交与结束区间仍在同一 SYNC 会话；尚未对齐 Weasel 的独立结束会话、文本服务自身聚合 `ITfCompositionSink`、显示属性提供器。
+

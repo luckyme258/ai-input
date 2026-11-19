@@ -78,6 +78,11 @@ public sealed class EditSession : ITfEditSession
                     return HResult.S_OK;
 
                 case SessionMode.Preedit:
+                    // 累积阶段先不把拼音写进 composition 区间：实测对已含 interim 文本的区间
+                    // 做替换写入在结束区间后会被宿主丢弃；保持区间为空，提交时再写入候选词。
+                    if (!_owner.HasComposition) StartComposition(ec, pRange);
+                    return HResult.S_OK;
+
                 case SessionMode.Commit:
                     break;
 

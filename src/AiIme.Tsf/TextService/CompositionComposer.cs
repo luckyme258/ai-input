@@ -15,6 +15,10 @@ public sealed class CompositionComposer
 {
     private readonly uint _clientId;
     private IntPtr _composition;
+    /// <summary>持有区间所属的原始 ITfContext 指针；与当前按键上下文不一致时判为陈旧区间。</summary>
+    private IntPtr _compositionPic;
+    /// <summary>本次按键回调传入的上下文原始指针，供新建区间绑定归属。</summary>
+    private IntPtr _currentPic;
     private readonly CompositionSink _sink;
     private readonly IntPtr _sinkPtr;
 
@@ -34,11 +38,12 @@ public sealed class CompositionComposer
     /// <summary>当前是否存在进行中的 composition 区间。</summary>
     public bool HasComposition => _composition != IntPtr.Zero;
 
-    /// <summary>记录新创建的 composition 引用（释放旧引用）。</summary>
+    /// <summary>记录新创建的 composition 引用（释放旧引用），并绑定所属上下文。</summary>
     public void SetComposition(IntPtr pComposition)
     {
         if (_composition != IntPtr.Zero) Marshal.Release(_composition);
         _composition = pComposition;
+        _compositionPic = _currentPic;
     }
 
     /// <summary>读取当前 composition 引用（不转移所有权）。</summary>
@@ -60,6 +65,17 @@ public sealed class CompositionComposer
             Marshal.Release(_composition);
             _composition = IntPtr.Zero;
         }
+        _compositionPic = IntPtr.Zero;
+    }
+
+    /// <summary>当前持有区间是否属于给定上下文；不属于则判为陈旧区间并清空。</summary>
+    public bool IsCompositionInContext(IntPtr pic)
+    {
+        if (_composition == IntPtr.Zero) return true;
+        if (_compositionPic == pic) return true;
+        TsfDebugLog.Write("Composer", $"陈旧区间跨上下文丢弃: comp={_composition} oldPic={_compositionPic} newPic={pic}");
+        ClearComposition();
+        return false;
     }
 
     /// <summary>释放 sink 接口指针（服务停用调用）。</summary>
@@ -92,6 +108,7 @@ public sealed class CompositionComposer
     public void CommitText(IntPtr pic, string text, int candidateCount, bool finalCommit = false)
     {
         if (pic == IntPtr.Zero) return;
+        _currentPic = pic;
 
         var context = Marshal.GetObjectForIUnknown(pic) as ITfContext;
         if (context == null)
@@ -106,6 +123,9 @@ public sealed class CompositionComposer
             RunSession(context, SessionMode.Abort, string.Empty);
             return;
         }
+
+        // 持有区间若属于另一个上下文（跨宿主/失焦切换），先丢弃陈旧区间。
+        IsCompositionInContext(pic);
 
         // 独立会话先建区间（对齐 Weasel：建区间与写文本分开）。
         if (!HasComposition)
