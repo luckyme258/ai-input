@@ -26,6 +26,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
     private readonly CompositionComposer _composer;
     private readonly HabitLearner _learner;
     private readonly CandidateWindow _candidateWindow;
+    private readonly StatusIndicator _statusIndicator;
     private readonly uint _clientId;
 
     /// <summary>最近已上屏词序列（用于 n-gram 上下文）。</summary>
@@ -74,10 +75,15 @@ public sealed class KeyEventSink : ITfKeyEventSink
         _learner = learner ?? throw new ArgumentNullException(nameof(learner));
         _clientId = clientId;
         _candidateWindow = new CandidateWindow();
+        _statusIndicator = new StatusIndicator();
     }
 
     /// <summary>释放候选窗资源（服务停用调用）。</summary>
-    internal void DisposeCandidateWindow() => _candidateWindow.Dispose();
+    internal void DisposeCandidateWindow()
+    {
+        _candidateWindow.Dispose();
+        _statusIndicator.Dispose();
+    }
 
     public int OnSetFocus(int fforeground)
     {
@@ -89,6 +95,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
             _selectedIndex = 0;
             _pageOffset = 0;
             _candidateWindow.Hide();
+            _statusIndicator.Hide();
             if (_lastPic != IntPtr.Zero) _composer.CommitText(_lastPic, string.Empty, 0);
         }
         return HResult.S_OK;
@@ -145,6 +152,11 @@ public sealed class KeyEventSink : ITfKeyEventSink
         _pageOffset = 0;
         _candidateWindow.Hide();
         if (_composer.HasComposition) _composer.CommitText(pic, string.Empty, 0);
+
+        var pos = GetCaretInfo(pic);
+        if (_englishMode) _statusIndicator.SetMode(true, pos.Hwnd, pos.Rect);
+        else _statusIndicator.Hide();
+
         TsfDebugLog.Write("Shift", $"toggle englishMode={_englishMode}");
     }
 
@@ -338,7 +350,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
         }
     }
 
-    /// <summary>按当前状态机同步候选窗：有候选则在光标附近显示，否则隐藏。</summary>
+    /// <summary>按当前状态机同步候选窗与模式指示条：有候选则在光标附近显示，否则隐藏。</summary>
     private void RefreshCandidateWindow(IntPtr pic)
     {
         if (_composition.IsComposing && _composition.Candidates.Count > 0)
@@ -349,10 +361,20 @@ public sealed class KeyEventSink : ITfKeyEventSink
             _pageOffset = Math.Clamp(_pageOffset, 0, Math.Max(0, count - 1));
             int sel = Math.Clamp(_selectedIndex, _pageOffset, Math.Min(count, _pageOffset + VisibleRows) - 1);
             _candidateWindow.Update(_composition.Candidates, sel, _pageOffset, pos.Hwnd, pos.Rect);
+            _statusIndicator.SetMode(false, pos.Hwnd, pos.Rect);
         }
         else
         {
             _candidateWindow.Hide();
+            if (_englishMode)
+            {
+                // 英文直输态：显示「EN」；不取新光标矩形，沿用指示窗最近一次有效位置，避免每个字母多跑一次会话。
+                _statusIndicator.SetMode(true, IntPtr.Zero, default);
+            }
+            else
+            {
+                _statusIndicator.Hide();
+            }
         }
     }
 
@@ -467,6 +489,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
         _selectedIndex = 0;
         _pageOffset = 0;
         _candidateWindow.Hide();
+        _statusIndicator.Hide();
     }
 
     private static bool IsLetterVk(int vk) => vk is >= 0x41 and <= 0x5A;

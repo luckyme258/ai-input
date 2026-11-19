@@ -177,6 +177,7 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2} -MaxEvents 10 |
 | 数字 1–9 | 按当前页行号选词上屏（行号映射到跨页绝对序号；选非首项记纠正） |
 | Esc | 清空 composition 与状态机，隐藏候选窗 |
 | Ctrl/Alt + 按键 | 组合快捷键透传宿主（Ctrl+A 全选 / C 复制 / V 粘贴 / Z 撤销等），不被当作拼音 |
+| 模式指示 | 光标附近自绘小状态条：拼音态显示蓝底白字「中」（随候选窗出现），英文直输态显示灰底深字「EN」；失焦、上屏后隐藏 |
 
 候选词上屏后经 `HabitLearner.RecordCommit(word, context, wasCorrection)` 回写词频与 n-gram；`PreviousWords` 取最近已上屏词序列。新输入、退格、Esc、上屏、失焦都会把高亮序号与页码重置回首项/首页。
 
@@ -382,6 +383,12 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 - 日志默认关闭：旧实现「不等于 0 即开启」，未设变量时也默认写日志，每个按键十余次同步 `AppendAllText`（lock + 磁盘写入），是输入卡顿的重要原因；改为只有 `AIIME_TSF_DEBUG=1` 才开启。
 - 旧逻辑累积阶段每按一个字母都开一次 `Preedit` 同步编辑会话（区间保持为空、会话内不写文本，属空跑）；改为已有区间后累积阶段不再开会话，只有最终上屏才开 `Commit` 会话。每个字母少一次同步 TSF 会话 + 一次 `GetSelection/InWriteSession`。
 - 剩余待查卡顿点：`CandidateRanker.Rank` 对每个候选逐条查 SQLite（词频 / bigram / trigram），候选最多 300 条时按键会触发多次数据库往返；后续可改为一次批量读出词频表再内存打分。
+
+### 9.10 模式状态指示条（v57）
+
+- 新增自绘置顶小窗 `StatusIndicator`（与候选窗同一套 Win32/双缓冲/光标定位模式，独立窗口类 `AiImeStatusWnd`）：拼音态蓝底白字「中」，随候选窗在光标附近出现；英文直输态灰底深字「EN」。
+- 指示条随 Shift 切换、候选刷新同步；上屏、Esc、失焦后隐藏。英文态刷新时不再额外取光标矩形，沿用最近一次有效位置，避免每个字母多跑一次同步编辑会话。
+
 
 
 
