@@ -33,9 +33,21 @@ public sealed class KeyEventSink : ITfKeyEventSink
     /// <summary>最近一次按键携带的 ITfContext 指针（焦点丢失结束 composition 时复用）。</summary>
     private IntPtr _lastPic;
 
+    /// <summary>当前高亮候选序号（0 起，跨页）；↑/↓ 移动，回车/空格确认。</summary>
+    private int _selectedIndex;
+
+    /// <summary>当前页在候选列表中的起始偏移。</summary>
+    private int _pageOffset;
+
     private const int VkControl = 0x11;
     private const int VkMenu = 0x12;
     private const short KeyDownMask = unchecked((short)0x8000);
+
+    private const int VkUp = 0x26;
+    private const int VkDown = 0x28;
+    private const int VkLeft = 0x25;
+    private const int VkRight = 0x27;
+    private const int VisibleRows = 9;
 
     [DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
@@ -63,6 +75,8 @@ public sealed class KeyEventSink : ITfKeyEventSink
         if (fforeground == 0 && _composition.IsComposing)
         {
             _composition.Clear();
+            _selectedIndex = 0;
+            _pageOffset = 0;
             _candidateWindow.Hide();
             if (_lastPic != IntPtr.Zero) _composer.CommitText(_lastPic, string.Empty, 0);
         }
@@ -85,7 +99,9 @@ public sealed class KeyEventSink : ITfKeyEventSink
     private bool TestConsume(int vk) => vk switch
     {
         0x08 or 0x1B or 0x0D or 0x20 => _composition.IsComposing,
-        >= 0x31 and <= 0x39 => _composition.IsComposing && vk - 0x31 < _composition.Candidates.Count,
+        VkUp or VkDown => _composition.IsComposing && _composition.Candidates.Count > 1,
+        VkLeft or VkRight => _composition.IsComposing && _composition.Candidates.Count > VisibleRows,
+        >= 0x31 and <= 0x39 => _composition.IsComposing && _pageOffset + vk - 0x31 < _composition.Candidates.Count,
         _ => IsLetterVk(vk),
     };
 
@@ -117,6 +133,69 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
             switch (vk)
             {
+                case VkUp:
+                    if (!_composition.IsComposing || _composition.Candidates.Count <= 1)
+                    {
+                        pfEaten = 0;
+                        return HResult.S_OK;
+                    }
+                    if (_selectedIndex > 0)
+                    {
+                        _selectedIndex--;
+                        // 高亮退到当前页首行之外时，向上翻一页。
+                        if (_selectedIndex < _pageOffset) _pageOffset = _selectedIndex;
+                    }
+                    eaten = true;
+                    action = "Up";
+                    break;
+
+                case VkDown:
+                    if (!_composition.IsComposing || _composition.Candidates.Count <= 1)
+                    {
+                        pfEaten = 0;
+                        return HResult.S_OK;
+                    }
+                    if (_selectedIndex < _composition.Candidates.Count - 1)
+                    {
+                        _selectedIndex++;
+                        // 高亮越过当前页末行时，向下翻一页，高亮落在新页首行。
+                        if (_selectedIndex >= _pageOffset + VisibleRows)
+                            _pageOffset = _selectedIndex;
+                    }
+                    eaten = true;
+                    action = "Down";
+                    break;
+
+                case VkRight:
+                    if (!_composition.IsComposing || _composition.Candidates.Count <= VisibleRows)
+                    {
+                        pfEaten = 0;
+                        return HResult.S_OK;
+                    }
+                    if (_pageOffset + VisibleRows < _composition.Candidates.Count)
+                    {
+                        _pageOffset += VisibleRows;
+                        _selectedIndex = _pageOffset; // 翻到下一页，高亮落首行。
+                    }
+                    eaten = true;
+                    action = "PageNext";
+                    break;
+
+                case VkLeft:
+                    if (!_composition.IsComposing || _composition.Candidates.Count <= VisibleRows)
+                    {
+                        pfEaten = 0;
+                        return HResult.S_OK;
+                    }
+                    if (_pageOffset > 0)
+                    {
+                        _pageOffset = Math.Max(0, _pageOffset - VisibleRows);
+                        _selectedIndex = _pageOffset; // 翻回上一页，高亮落首行。
+                    }
+                    eaten = true;
+                    action = "PagePrev";
+                    break;
+
                 case 0x08: // VK_BACK
                     if (!_composition.IsComposing)
                     {
@@ -127,35 +206,42 @@ public sealed class KeyEventSink : ITfKeyEventSink
                     }
                     eaten = _composition.Backspace();
                     action = "Backspace";
+                    _selectedIndex = 0;
+                    _pageOffset = 0;
                     if (eaten) _composer.Commit(pic, _composition);
                     break;
 
                 case 0x1B: // VK_ESCAPE
                     _composition.Clear();
+                    _selectedIndex = 0;
+                    _pageOffset = 0;
                     eaten = true;
                     action = "Escape";
                     _composer.CommitText(pic, string.Empty, 0);
                     break;
 
                 case 0x0D: // VK_RETURN
-                case 0x20: // VK_SPACE：空格与回车一致，提交首选候选
+                case 0x20: // VK_SPACE：空格与回车一致，提交当前高亮候选
                     eaten = _composition.IsComposing;
                     action = vk == 0x20 ? "Space" : "Enter";
-                    if (eaten) CommitCandidate(pic, 0, correction: false);
+                    if (eaten) CommitCandidate(pic, _selectedIndex, correction: _selectedIndex > 0);
                     break;
 
                 default:
-                    // 数字 1..9 选词（VK 0x31..0x39）。
+                    // 数字 1..9 选词（VK 0x31..0x39）；按当前页行号映射到绝对序号。
                     if (vk is >= 0x31 and <= 0x39)
                     {
-                        int index = vk - 0x31;
+                        int row = vk - 0x31;
+                        int index = _pageOffset + row;
                         eaten = index < _composition.Candidates.Count;
-                        action = $"Digit-{index + 1}";
+                        action = $"Digit-{row + 1}";
                         if (eaten) CommitCandidate(pic, index, correction: index > 0);
                         break;
                     }
 
                     // 字母键：由状态机按 VK 转字符后累积。
+                    _selectedIndex = 0;
+                    _pageOffset = 0;
                     eaten = _composition.Append(VkToChar(vk));
                     action = $"Key 0x{vk:X2}";
                     if (eaten) _composer.Commit(pic, _composition);
@@ -183,7 +269,10 @@ public sealed class KeyEventSink : ITfKeyEventSink
         var pos = GetCaretInfo(pic);
         if (_composition.IsComposing && _composition.Candidates.Count > 0)
         {
-            _candidateWindow.Update(_composition.Candidates, selected: 0, pos.Hwnd, pos.Rect);
+            int count = _composition.Candidates.Count;
+            _pageOffset = Math.Clamp(_pageOffset, 0, Math.Max(0, count - 1));
+            int sel = Math.Clamp(_selectedIndex, _pageOffset, Math.Min(count, _pageOffset + VisibleRows) - 1);
+            _candidateWindow.Update(_composition.Candidates, sel, _pageOffset, pos.Hwnd, pos.Rect);
         }
         else
         {
@@ -299,6 +388,8 @@ public sealed class KeyEventSink : ITfKeyEventSink
         }
 
         _composition.Clear();
+        _selectedIndex = 0;
+        _pageOffset = 0;
         _candidateWindow.Hide();
     }
 

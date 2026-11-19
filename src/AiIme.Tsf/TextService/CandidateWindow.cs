@@ -31,10 +31,13 @@ internal sealed class CandidateWindow : IDisposable
     private const int COLOR_HIGHLIGHT = 13;
     private const int COLOR_HIGHLIGHTTEXT = 14;
 
-    private const int RowHeight = 22;
+    private const int RowHeight = 28;
     private const int MaxRows = 9;
-    private const int MarginX = 10;
-    private const int PaddingX = 8;
+    private const int MarginX = 12;
+    private const int PaddingX = 10;
+
+    // 逻辑字体字号（字符高，px，负值表示字符高度）。
+    private const int FontHeight = -16;
 
     // 候选窗配色写死（浅色弹出窗），避免依赖系统主题色 / GetSysColor 编组带来的歧义。
     // COLORREF 为 0x00BBGGRR。
@@ -55,6 +58,7 @@ internal sealed class CandidateWindow : IDisposable
     private int _lastHeight;
     private IReadOnlyList<Candidate> _candidates = Array.Empty<Candidate>();
     private int _selected;
+    private int _pageOffset;
     private bool _disposed;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -126,11 +130,28 @@ internal sealed class CandidateWindow : IDisposable
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr ho);
 
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr GetStockObject(int nIndex);
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr CreateFontW(int nHeight, int nWidth, int nEscapement, int nOrientation,
+        int nWeight, uint dwItalic, uint dwUnderline, uint dwStrikeOut, uint dwCharSet,
+        uint dwOutputPrecision, uint dwClipPrecision, uint dwQuality, uint dwPitchAndFamily, string lpszFace);
 
-    // DEFAULT_GUI_FONT 库存对象：随系统自带中文字形回退，避免默认 DC 字体缺 CJK 字形。
-    private const int DEFAULT_GUI_FONT = 17;
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SIZE
+    {
+        public int cx;
+        public int cy;
+    }
+
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool GetTextExtentPoint32W(IntPtr hdc, string lpString, int cbString, out SIZE size);
+
+    private const int FwNormal = 400;
+    private const uint DefaultCharset = 134; // GB2312，保证中文回退
+    private const string FaceName = "Microsoft YaHei";
+
+    /// <summary>创建候选窗使用的雅黑逻辑字体。调用方负责 DeleteObject。</summary>
+    private static IntPtr CreateCandidateFont() => CreateFontW(
+        FontHeight, 0, 0, 0, FwNormal, 0, 0, 0, DefaultCharset, 0, 0, 0, 0, FaceName);
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
@@ -182,15 +203,19 @@ internal sealed class CandidateWindow : IDisposable
     public IntPtr Hwnd => _hwnd;
 
     /// <summary>更新候选并在光标附近显示。无候选时隐藏。</summary>
-    public void Update(IReadOnlyList<Candidate> candidates, int selected, IntPtr parentHwnd, TfRect caret)
+    /// <param name="selected">绝对序号（跨页）高亮项。</param>
+    /// <param name="pageOffset">当前页在候选列表中的起始偏移。</param>
+    public void Update(IReadOnlyList<Candidate> candidates, int selected, int pageOffset, IntPtr parentHwnd, TfRect caret)
     {
         if (_disposed) return;
 
         _candidates = candidates ?? Array.Empty<Candidate>();
-        _selected = selected;
+        _pageOffset = Math.Max(0, pageOffset);
+        _pageOffset = Math.Min(_pageOffset, Math.Max(0, _candidates.Count - 1));
+        _selected = Math.Clamp(selected, _pageOffset, Math.Min(_candidates.Count, _pageOffset + MaxRows) - 1);
 
         var top = string.Join(",", _candidates.Take(3).Select(c => c.Text));
-        TsfDebugLog.Write("CandidateWnd", $"update count={_candidates.Count} top=[{top}]");
+        TsfDebugLog.Write("CandidateWnd", $"update count={_candidates.Count} offset={_pageOffset} sel={_selected} top=[{top}]");
 
         if (_candidates.Count == 0)
         {
@@ -208,7 +233,7 @@ internal sealed class CandidateWindow : IDisposable
             _visible = true;
         }
 
-        // 候选内容未变化时不触发重绘，避免每按键无效刷新引起闪烁。
+        // 候选内容/页码/高亮未变化时不触发重绘，避免每按键无效刷新引起闪烁。
         var signature = BuildSignature();
         if (signature != _lastSignature)
         {
@@ -222,10 +247,14 @@ internal sealed class CandidateWindow : IDisposable
     private string BuildSignature()
     {
         var sb = new StringBuilder();
-        sb.Append(_selected).Append('|');
-        foreach (var c in _candidates.Take(MaxRows)) sb.Append(c.Text).Append(',');
+        sb.Append(_pageOffset).Append('|').Append(_selected).Append('|');
+        foreach (var c in Visible()) sb.Append(c.Text).Append(',');
         return sb.ToString();
     }
+
+    /// <summary>当前页可见候选切片。</summary>
+    private IEnumerable<Candidate> Visible() =>
+        _candidates.Skip(_pageOffset).Take(MaxRows);
 
     /// <summary>隐藏候选窗。</summary>
     public void Hide()
@@ -260,7 +289,7 @@ internal sealed class CandidateWindow : IDisposable
         _hwnd = CreateWindowEx(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             ClassName.ToString(), string.Empty, WS_POPUP,
-            0, 0, 200, RowHeight * Math.Min(_candidates.Count, MaxRows),
+            0, 0, 200, RowHeight * Math.Min(Math.Max(0, _candidates.Count - _pageOffset), MaxRows),
             IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
         if (_hwnd != IntPtr.Zero) RegisterInstance();
@@ -269,7 +298,7 @@ internal sealed class CandidateWindow : IDisposable
 
     private void PositionNear(IntPtr parentHwnd, TfRect caret)
     {
-        var rows = Math.Min(_candidates.Count, MaxRows);
+        int rows = Math.Min(Math.Max(0, _candidates.Count - _pageOffset), MaxRows);
         int height = RowHeight * rows;
         int width = MeasureWidth();
 
@@ -332,13 +361,28 @@ internal sealed class CandidateWindow : IDisposable
 
     private int MeasureWidth()
     {
-        int max = 80;
-        foreach (var c in _candidates.Take(MaxRows))
+        IntPtr dc = CreateCompatibleDC(IntPtr.Zero);
+        IntPtr hFont = CreateCandidateFont();
+        IntPtr oldFont = hFont != IntPtr.Zero ? SelectObject(dc, hFont) : IntPtr.Zero;
+
+        int max = PaddingX * 2;
+        int i = 0;
+        foreach (var c in Visible())
         {
-            // 序号 + 分隔 + 词；粗略按字符宽度估算。
-            max = Math.Max(max, PaddingX * 2 + c.Text.Length * 16);
+            // 与 Paint 中一致的「序号. 词」标签，按真实字形宽度测量。
+            string label = $"{_pageOffset + i + 1}. {c.Text}";
+            if (GetTextExtentPoint32W(dc, label, label.Length, out SIZE sz))
+                max = Math.Max(max, PaddingX * 2 + sz.cx);
+            i++;
         }
-        return max + MarginX;
+
+        if (oldFont != IntPtr.Zero) SelectObject(dc, oldFont);
+        if (hFont != IntPtr.Zero) DeleteObject(hFont);
+        DeleteDC(dc);
+
+        // 宽度不超过屏幕宽，避免长短语溢出右边界。
+        int screenW = GetSystemMetrics(0);
+        return Math.Min(max + MarginX, Math.Max(120, screenW - 16));
     }
 
     private static IntPtr OnWndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -390,14 +434,15 @@ internal sealed class CandidateWindow : IDisposable
         IntPtr memBmp = IntPtr.Zero;
         IntPtr oldBmp = IntPtr.Zero;
         IntPtr oldFont = IntPtr.Zero;
+        IntPtr hFont = IntPtr.Zero;
         try
         {
             memDc = CreateCompatibleDC(hdc);
             memBmp = CreateCompatibleBitmap(hdc, w, h);
             oldBmp = SelectObject(memDc, memBmp);
 
-            // 选中系统 GUI 字体（含中文字形回退），用完在 finally 恢复。
-            IntPtr hFont = GetStockObject(DEFAULT_GUI_FONT);
+            // 创建雅黑逻辑字体（加大字号，含中文字形），用完在 finally 释放。
+            hFont = CreateCandidateFont();
             oldFont = hFont != IntPtr.Zero ? SelectObject(memDc, hFont) : IntPtr.Zero;
 
             // 背景先画到内存 DC，避免直接在屏幕上分块擦除/填充产生闪烁。
@@ -407,11 +452,13 @@ internal sealed class CandidateWindow : IDisposable
             DeleteObject(hBg);
             SetBkMode(memDc, 1); // TRANSPARENT：文字背景不擦除，避免盖住高亮底色。
 
-            int rows = Math.Min(window._candidates.Count, MaxRows);
+            int offset = window._pageOffset;
+            int rows = Math.Min(Math.Max(0, window._candidates.Count - offset), MaxRows);
             for (int i = 0; i < rows; i++)
             {
+                int absolute = offset + i;
                 var rowRect = new RECT { Left = 0, Top = i * RowHeight, Right = w, Bottom = (i + 1) * RowHeight };
-                bool selected = i == window._selected;
+                bool selected = absolute == window._selected;
 
                 IntPtr hSel = IntPtr.Zero;
                 bool selOk = true;
@@ -423,7 +470,7 @@ internal sealed class CandidateWindow : IDisposable
                 }
 
                 var textRect = new RECT { Left = PaddingX, Top = rowRect.Top, Right = rowRect.Right - PaddingX, Bottom = rowRect.Bottom };
-                string label = $"{i + 1}. {window._candidates[i].Text}";
+                string label = $"{absolute + 1}. {window._candidates[absolute].Text}";
 
                 uint textColor = selected ? SelText : NormalText;
                 SetTextColor(memDc, textColor);
@@ -432,7 +479,7 @@ internal sealed class CandidateWindow : IDisposable
                 {
                     var codes = string.Join(" ", label.Select(ch => ((int)ch).ToString("X4")));
                     TsfDebugLog.Write("CandidateWnd",
-                        $"Paint row{i} sel={selected} label='{label}' codes=[{codes}] rect=({textRect.Left},{textRect.Top},{textRect.Right},{textRect.Bottom}) color=0x{textColor:X8} hSel={hSel} selOk={selOk} bgOk={bgOk} win={w}x{h}");
+                        $"Paint row{i} abs={absolute} sel={selected} label='{label}' codes=[{codes}] rect=({textRect.Left},{textRect.Top},{textRect.Right},{textRect.Bottom}) color=0x{textColor:X8} hSel={hSel} selOk={selOk} bgOk={bgOk} win={w}x{h}");
                 }
 
                 DrawText(memDc, label, label.Length, ref textRect, DT_LEFT | DT_SINGLELINE);
@@ -443,6 +490,7 @@ internal sealed class CandidateWindow : IDisposable
         finally
         {
             if (oldFont != IntPtr.Zero) SelectObject(memDc, oldFont);
+            if (hFont != IntPtr.Zero) DeleteObject(hFont);
             if (memBmp != IntPtr.Zero) SelectObject(memDc, oldBmp);
             if (memBmp != IntPtr.Zero) DeleteObject(memBmp);
             if (memDc != IntPtr.Zero) DeleteDC(memDc);
