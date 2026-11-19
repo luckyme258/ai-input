@@ -109,7 +109,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
     /// <summary>测试阶段是否由本输入法接管该按键（与 OnKeyDown 实际能否消费保持一致）。</summary>
     private bool TestConsume(int vk)
     {
-        // Shift 始终放行宿主（修饰键状态不能被我方吃掉）；中英切换在 keyup 判定独立敲击后做。
+        // Shift 不接管按键（修饰状态留给宿主）；中英切换在 OnTestKeyUp 里翻转。
         if (IsShiftVk(vk)) return false;
 
         // 英文直输模式：字母/数字/空格/回车/退格/方向键一律放行宿主原生输入。
@@ -128,9 +128,24 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
     public int OnTestKeyUp(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
     {
+        int vk = (int)wparam;
+        // Shift 在测试阶段被放行（OnKeyDown 不会被转发），中英切换只能放在这里做。
+        if (IsShiftVk(vk)) ToggleEnglishMode(pic);
         pfEaten = 0;
-        TsfDebugLog.Write("OnTestKeyUp", $"vk=0x{(int)wparam:X2}");
+        TsfDebugLog.Write("OnTestKeyUp", $"vk=0x{vk:X2}");
         return HResult.S_OK;
+    }
+
+    /// <summary>翻转中文拼音 / 英文直输模式，并丢弃未上屏的中文输入与残留区间。</summary>
+    private void ToggleEnglishMode(IntPtr pic)
+    {
+        _englishMode = !_englishMode;
+        if (_composition.IsComposing) _composition.Clear();
+        _selectedIndex = 0;
+        _pageOffset = 0;
+        _candidateWindow.Hide();
+        if (_composer.HasComposition) _composer.CommitText(pic, string.Empty, 0);
+        TsfDebugLog.Write("Shift", $"toggle englishMode={_englishMode}");
     }
 
     public int OnKeyDown(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
@@ -155,14 +170,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
             switch (vk)
             {
                 case VkShift or VkLShift or VkRShift:
-                    // Shift 按下即切换中文/英文直输；不接管按键（eaten=false），宿主仍保留 Shift 修饰状态。
-                    _englishMode = !_englishMode;
-                    if (_composition.IsComposing) _composition.Clear();
-                    _selectedIndex = 0;
-                    _pageOffset = 0;
-                    _candidateWindow.Hide();
-                    if (_composer.HasComposition) _composer.CommitText(pic, string.Empty, 0);
-                    TsfDebugLog.Write("OnKeyDown", $"Shift toggle englishMode={_englishMode}");
+                    // 切换在 OnTestKeyUp 完成；这里仅放行，不接管按键。
                     eaten = false;
                     action = "Shift";
                     break;

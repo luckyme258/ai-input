@@ -172,7 +172,7 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2} -MaxEvents 10 |
 | ↑ / ↓ | 当前页内上下移动高亮；越过末行向下翻页、退到首行之外向上翻页，翻页后高亮落邻页首/末行 |
 | ← / →、PgUp / PgDn | 上一页 / 下一页（每页 9 条），翻页后高亮落新页首行；单页候选时放行宿主 |
 | Home / End | 在**当前页内**跳到首行 / 末行（不跨页） |
-| Shift | 按下即切换中文拼音 / 英文直输；英文模式下字母、数字、空格、回车放行宿主原生输入；不接管按键，宿主保留 Shift 修饰状态 |
+| Shift | 抬起即切换中文拼音 / 英文直输；英文模式下字母、数字、空格、回车放行宿主原生输入；不接管按键，宿主保留 Shift 修饰状态 |
 | 回车 / 空格 | 提交当前高亮候选；无候选则上屏拼音串 |
 | 数字 1–9 | 按当前页行号选词上屏（行号映射到跨页绝对序号；选非首项记纠正） |
 | Esc | 清空 composition 与状态机，隐藏候选窗 |
@@ -374,7 +374,7 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 
 - Home/End 原实现跳到全部候选首/末项并跨页，不符合预期；改为只在当前页内跳转。
 - 候选标签原按绝对序号显示（1–20+），改为页内行号 1–9。
-- Shift 原方案在 `OnKeyUp` 用 `_shiftTap` 判定独立敲击；真机日志显示 `OnKeyDown` 进了 Shift 但 `OnKeyUp` 时该标记已丢失，切换未触发。本机 TSF/comhost 下 keyup 独立敲击判定不可靠，已改为 `OnKeyDown` 直接翻转 `_englishMode`（不接管按键，宿主保留 Shift 修饰状态）。已知取舍：Shift+字母组合会在 Shift 按下时翻转模式，后续如需区分长按/组合再细化。
+- Shift 切换根因与落点：TSF 按键流程先过 `OnTestKeyDown` 判定是否接管；**测试阶段放行（eat=0）的按键，`OnKeyDown` 不会被转发**。Shift 作为修饰键始终放行，因此放在 `OnKeyDown` 或 `OnKeyUp` 里的切换都收不到（真机日志：Shift 只出现 `OnTestKeyDown/OnTestKeyUp`，无 `OnKeyDown`）。最终把翻转逻辑放在 `OnTestKeyUp`（该回调对放行键也会被调用），不接管按键、不影响宿主修饰状态。已知取舍：Shift+字母组合会在 Shift 抬起时一并翻转模式，后续如需区分长按/组合再细化。
 
 
 **卡顿优化（第一轮）**
