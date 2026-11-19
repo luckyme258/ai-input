@@ -39,7 +39,7 @@ try
     if (command == "register")
     {
         registrar.Register();
-        Console.WriteLine("注册完成。可在 控制面板\\时钟和区域\\语言\\键盘 和语言栏中查看 AiIme 拼音。");
+        Console.WriteLine("注册完成。可在 控制面板\\时钟和区域\\语言\\键盘 和语言栏中查看 ai-input 拼音。");
     }
     else
     {
