@@ -89,6 +89,28 @@ public sealed class SqliteProfileStore : IUserProfileStore, IDisposable
         return result is double d ? d : 0;
     }
 
+    public IReadOnlyDictionary<string, double> GetWordFrequencies(IEnumerable<string> words)
+    {
+        var dict = new Dictionary<string, double>();
+        var list = words.Where(w => !string.IsNullOrEmpty(w)).Distinct().ToList();
+        if (list.Count == 0) return dict;
+
+        using var cmd = _connection.CreateCommand();
+        var placeholders = new List<string>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var p = "$w" + i;
+            placeholders.Add(p);
+            cmd.Parameters.AddWithValue(p, list[i]);
+        }
+        cmd.CommandText = "SELECT word, freq FROM word_freq WHERE word IN ("
+            + string.Join(",", placeholders) + ");";
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) dict[reader.GetString(0)] = reader.GetDouble(1);
+        return dict;
+    }
+
     public void AddWordFrequency(string word, double weight = 1.0)
     {
         if (string.IsNullOrEmpty(word) || weight <= 0) return;
@@ -117,6 +139,29 @@ public sealed class SqliteProfileStore : IUserProfileStore, IDisposable
         return result is long l ? l : 0;
     }
 
+    public IReadOnlyDictionary<string, long> GetBigramCounts(string previous, IEnumerable<string> nexts)
+    {
+        var dict = new Dictionary<string, long>();
+        var list = nexts.Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList();
+        if (string.IsNullOrEmpty(previous) || list.Count == 0) return dict;
+
+        using var cmd = _connection.CreateCommand();
+        var placeholders = new List<string>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var p = "$n" + i;
+            placeholders.Add(p);
+            cmd.Parameters.AddWithValue(p, list[i]);
+        }
+        cmd.CommandText = "SELECT next, count FROM bigram WHERE prev = $prev AND next IN ("
+            + string.Join(",", placeholders) + ");";
+        cmd.Parameters.AddWithValue("$prev", previous);
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) dict[reader.GetString(0)] = reader.GetInt64(1);
+        return dict;
+    }
+
     public void AddBigram(string previous, string next)
     {
         if (string.IsNullOrEmpty(previous) || string.IsNullOrEmpty(next)) return;
@@ -141,6 +186,30 @@ public sealed class SqliteProfileStore : IUserProfileStore, IDisposable
         cmd.Parameters.AddWithValue("$next", next);
         var result = cmd.ExecuteScalar();
         return result is long l ? l : 0;
+    }
+
+    public IReadOnlyDictionary<string, long> GetTrigramCounts(string w1, string w2, IEnumerable<string> nexts)
+    {
+        var dict = new Dictionary<string, long>();
+        var list = nexts.Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList();
+        if (string.IsNullOrEmpty(w1) || string.IsNullOrEmpty(w2) || list.Count == 0) return dict;
+
+        using var cmd = _connection.CreateCommand();
+        var placeholders = new List<string>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var p = "$n" + i;
+            placeholders.Add(p);
+            cmd.Parameters.AddWithValue(p, list[i]);
+        }
+        cmd.CommandText = "SELECT next, count FROM trigram WHERE w1 = $w1 AND w2 = $w2 AND next IN ("
+            + string.Join(",", placeholders) + ");";
+        cmd.Parameters.AddWithValue("$w1", w1);
+        cmd.Parameters.AddWithValue("$w2", w2);
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) dict[reader.GetString(0)] = reader.GetInt64(1);
+        return dict;
     }
 
     public void AddTrigram(string w1, string w2, string next)

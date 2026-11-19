@@ -381,7 +381,30 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 
 - 日志默认关闭：旧实现「不等于 0 即开启」，未设变量时也默认写日志，每个按键十余次同步 `AppendAllText`（lock + 磁盘写入），是输入卡顿的重要原因；改为只有 `AIIME_TSF_DEBUG=1` 才开启。
 - 旧逻辑累积阶段每按一个字母都开一次 `Preedit` 同步编辑会话（区间保持为空、会话内不写文本，属空跑）；改为已有区间后累积阶段不再开会话，只有最终上屏才开 `Commit` 会话。每个字母少一次同步 TSF 会话 + 一次 `GetSelection/InWriteSession`。
-- 剩余待查卡顿点：`CandidateRanker.Rank` 对每个候选逐条查 SQLite（词频 / bigram / trigram），候选最多 300 条时按键会触发多次数据库往返；后续可改为一次批量读出词频表再内存打分。
+- 排序读库已改批量（见 9.10）：不再对每个候选逐条往返 SQLite。
+
+
+### 9.10 扩词、排序批量读库与词典合规过滤（v58）
+
+**背景**：旧通用词表去重后仅约 3.7 万词条，召回偏窄；同时排序阶段逐条查库在大候选集下放大卡顿。
+
+**词典扩词与过滤（Core 数据层）**
+
+- 通用词表换用 jieba `dict.txt.big` 大词表 + mozillazg 字拼音表，经 `tools/Convert-CommonDict.py` 重生成：词频 ≥20、1–6 字、同词去重保留最高词频、剥声调、ü→v、多音字取首读音。
+- 链路过滤：繁体剔除（zhconv 转简体不一致即跳过）→ 合规剔除表（`--blocklist` 命中即跳过）。成品 `common-mit.tsv` 约 7.87 万简体词条；`hsk-basic.tsv` 约 1.26 万条，两份共用同一份剔除表。
+- 合规分类口径、剔除表机制与复审流程见 `docs/词典合规审核手册.md`；剔除表与候选清单位于 `data/local/`（gitignore，不入库、不分发）。
+
+**排序批量读库（`CandidateRanker` / `IUserProfileStore` / `SqliteProfileStore`）**
+
+- 接口新增三个批量方法并带默认实现（内部循环调旧单条方法），测试内存桩无需改动：
+  - `GetWordFrequencies(words)`：一次 `word_freq WHERE word IN (...)`；
+  - `GetBigramCounts(prev, nexts)`：一次 `bigram WHERE prev=$prev AND next IN (...)`；
+  - `GetTrigramCounts(w1, w2, nexts)`：一次 `trigram WHERE w1=$w1 AND w2=$w2 AND next IN (...)`。
+- `Rank` 先收集去重候选文本，各发一次批量查询取回词频 / 二元 / 三元计数，再在内存里 `TryGetValue` 打分；SQLite 实现用参数化占位符、空集合直接返回空字典。
+- 效果：候选最多 300 条时，读库往返从「每候选 3 次」降到固定 3 次批量查询；权重与打分公式不变。
+
+**验证**：Release 构建 0 警告 0 错误；Core xUnit 45 项全绿；成品 TSV 校验 0 坏列、剔除表 0 残留。
+
 
 
 

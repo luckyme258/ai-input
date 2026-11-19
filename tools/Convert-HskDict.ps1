@@ -1,11 +1,20 @@
 # 将 complete-hsk-vocabulary (MIT) 的 complete.json 转为引擎使用的 TSV。
 # 输出列：word<TAB>pinyin(无声调全拼,空格分隔)<TAB>initials(首字母串)<TAB>baseFreq
-# 用法： pwsh tools/Convert-HskDict.ps1 -Source <complete.json> -Out <dict.tsv>
+# 用法： pwsh tools/Convert-HskDict.ps1 -Source <complete.json> -Out <dict.tsv> [-Blocklist <blocklist.txt>]
 
 param(
     [Parameter(Mandatory = $true)][string]$Source,
-    [Parameter(Mandatory = $true)][string]$Out
+    [Parameter(Mandatory = $true)][string]$Out,
+    [string]$Blocklist
 )
+
+$block = New-Object System.Collections.Generic.HashSet[string]
+if ($Blocklist -and (Test-Path $Blocklist)) {
+    foreach ($b in Get-Content $Blocklist) {
+        $t = $b.Trim()
+        if ($t -and -not $t.StartsWith('#')) { [void]$block.Add($t) }
+    }
+}
 
 function Strip-Tone([string]$numeric) {
     if ([string]::IsNullOrWhiteSpace($numeric)) { return $null }
@@ -30,6 +39,7 @@ $skipped = 0
 foreach ($entry in $json) {
     $word = $entry.simplified
     if ([string]::IsNullOrWhiteSpace($word)) { $skipped++; continue }
+    if ($block.Contains($word)) { $skipped++; continue }
     $freq = if ($entry.frequency) { [double]$entry.frequency } else { 1.0 }
     foreach ($form in $entry.forms) {
         $r = Strip-Tone $form.transcriptions.numeric

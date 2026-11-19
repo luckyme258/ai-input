@@ -37,55 +37,50 @@ public class CandidateRanker
     {
         var list = candidates.ToList();
         var tail2 = context.Tail(2);
+        var words = list.Select(c => c.Text).Where(t => !string.IsNullOrEmpty(t)).Distinct().ToList();
+
+        // 批量读库：词频、二元、三元各一次查询，避免对每个候选逐条往返 SQLite。
+        var userFreq = _store.GetWordFrequencies(words);
+        var bigrams = tail2.Count >= 1
+            ? _store.GetBigramCounts(tail2[^1], words)
+            : EmptyLong;
+        var trigrams = tail2.Count >= 2
+            ? _store.GetTrigramCounts(tail2[^2], tail2[^1], words)
+            : EmptyLong;
 
         foreach (var c in list)
         {
-            c.Score = Score(c, context, tail2);
+            double score = WeightBaseFrequency * c.BaseFrequency;
+
+            score += WeightUserFrequency * (userFreq.TryGetValue(c.Text, out var uf) ? uf : 0);
+
+            double contextScore = 0;
+            if (tail2.Count >= 1 && bigrams.TryGetValue(c.Text, out var bg))
+            {
+                contextScore += Math.Log10(1 + bg);
+            }
+            if (tail2.Count >= 2 && trigrams.TryGetValue(c.Text, out var tg))
+            {
+                contextScore += Math.Log10(1 + tg);
+            }
+            score += WeightContext * contextScore;
+
+            if (context.RecentSessionWords.Contains(c.Text))
+            {
+                score += WeightRecentSession;
+            }
+
+            if (_predictor.IsAvailable)
+            {
+                score += WeightModelScore * _predictor.ScoreCandidate(c.Text, context);
+            }
+
+            c.Score = score;
         }
 
         return list.OrderByDescending(c => c.Score).ToList();
     }
 
-    private double Score(Candidate c, InputContext context, IReadOnlyList<string> tail2)
-    {
-        double score = 0;
-
-        score += WeightBaseFrequency * c.BaseFrequency;
-
-        var userFreq = _store.GetWordFrequency(c.Text);
-        score += WeightUserFrequency * userFreq;
-
-        score += WeightContext * ContextScore(c.Text, tail2);
-
-        if (context.RecentSessionWords.Contains(c.Text))
-        {
-            score += WeightRecentSession;
-        }
-
-        if (_predictor.IsAvailable)
-        {
-            score += WeightModelScore * _predictor.ScoreCandidate(c.Text, context);
-        }
-
-        return score;
-    }
-
-    private double ContextScore(string next, IReadOnlyList<string> tail2)
-    {
-        double score = 0;
-
-        if (tail2.Count >= 1)
-        {
-            var bigram = _store.GetBigramCount(tail2[^1], next);
-            score += Math.Log10(1 + bigram);
-        }
-
-        if (tail2.Count >= 2)
-        {
-            var trigram = _store.GetTrigramCount(tail2[^2], tail2[^1], next);
-            score += Math.Log10(1 + trigram);
-        }
-
-        return score;
-    }
+    private static readonly IReadOnlyDictionary<string, long> EmptyLong =
+        new Dictionary<string, long>();
 }

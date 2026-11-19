@@ -39,7 +39,7 @@ src/
 data/
 ├─ dict/                  # 词典 TSV（MIT）：hsk-basic.tsv（HSK 教学词）+ common-mit.tsv（常用口语词）
 └─ third_party/           # 上游 LICENSE 原文
-docs/                     # CLA、设计笔记、TSF 联调手册
+docs/                     # CLA、设计笔记、TSF 联调手册、词典合规审核手册
 tests/                    # Core 层单元测试
 ```
 

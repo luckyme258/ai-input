@@ -337,7 +337,6 @@
 背后	bei hou	bh	2349
 背景	bei jing	bj	2420
 背面	bei mian	bm	10439
-背叛	bei pan	bp	5017
 背诵	bei song	bs	19524
 背心	bei xin	bx	10100
 背着	bei zhe	bz	9984
@@ -608,7 +607,6 @@
 剥	bao	b	7525
 剥	bo	b	7525
 剥夺	bo duo	bd	7485
-剥削	bo xue	bx	12734
 播	bo	b	3610
 播出	bo chu	bc	4365
 播放	bo fang	bf	3952
@@ -2265,7 +2263,6 @@
 毒	du	d	1958
 毒品	du pin	dp	3565
 独	du	d	3635
-独裁	du cai	dc	17264
 独唱	du chang	dc	22679
 独家	du jia	dj	6451
 独立	du li	dl	1876
@@ -2696,7 +2693,6 @@
 分离	fen li	fl	3769
 分量	fen liang	fl	11274
 分量	fen liang	fl	11274
-分裂	fen lie	fl	4860
 分泌	fen mi	fm	8707
 分明	fen ming	fm	9781
 分配	fen pei	fp	3851
@@ -2774,7 +2770,6 @@
 封	feng	f	1534
 封闭	feng bi	fb	5618
 封顶	feng ding	fd	26487
-封建	feng jian	fj	21265
 封面	feng mian	fm	5727
 封锁	feng suo	fs	5606
 疯	feng	f	1448
@@ -3095,7 +3090,6 @@
 歌舞	ge wu	gw	9676
 歌星	ge xing	gx	13160
 歌咏	ge yong	gy	50700
-革命	ge ming	gm	2986
 革新	ge xin	gx	13372
 格	ge	g	1674
 格格不入	ge ge bu ru	ggbr	21750
@@ -4712,9 +4706,7 @@
 教养	jiao yang	jy	15158
 教育	jiao yu	jy	1197
 教育部	jiao yu bu	jyb	16284
-阶层	jie ceng	jc	9906
 阶段	jie duan	jd	1945
-阶级	jie ji	jj	8484
 阶梯	jie ti	jt	17459
 皆	jie	j	3500
 接	jie	j	425
@@ -4800,7 +4792,6 @@
 解除	jie chu	jc	4352
 解答	jie da	jd	10261
 解读	jie du	jd	9527
-解放	jie fang	jf	3669
 解雇	jie gu	jg	11919
 解救	jie jiu	jj	8020
 解决	jie jue	jj	458
@@ -6402,11 +6393,8 @@
 民间	min jian	mj	7015
 民警	min jing	mj	26049
 民俗	min su	ms	24358
-民意	min yi	my	14044
 民用	min yong	my	14041
 民众	min zhong	mz	4219
-民主	min zhu	mz	3363
-民族	min zu	mz	3724
 敏感	min gan	mg	3233
 敏捷	min jie	mj	13225
 敏锐	min rui	mr	9945
@@ -6760,7 +6748,6 @@
 弄	nong	n	952
 弄	long	l	952
 弄虚作假	nong xu zuo jia	nxzj	29962
-奴隶	nu li	nl	7456
 努力	nu li	nl	505
 女	nv	n	368
 女	ru	r	368
@@ -8026,7 +8013,6 @@
 设置	she zhi	sz	3247
 社	she	s	3615
 社会	she hui	sh	836
-社会主义	she hui zhu yi	shzy	7317
 社交	she jiao	sj	6894
 社论	she lun	sl	17368
 社区	she qu	sq	1886
@@ -10503,7 +10489,6 @@
 压	ya	y	1672
 压倒	ya dao	yd	15711
 压力	ya li	yl	981
-压迫	ya po	yp	7597
 压岁钱	ya sui qian	ysq	30823
 压缩	ya suo	ys	11394
 压抑	ya yi	yy	6607
@@ -10975,7 +10960,6 @@
 阴	yin	y	4058
 阴	yin	y	4058
 阴暗	yin an	ya	12522
-阴谋	yin mou	ym	5006
 阴天	yin tian	yt	25274
 阴性	yin xing	yx	8426
 阴影	yin ying	yy	5588
@@ -11879,7 +11863,6 @@
 证书	zheng shu	zs	6390
 郑重	zheng zhong	zz	11923
 政策	zheng ce	zc	2305
-政党	zheng dang	zd	12675
 政府	zheng fu	zf	527
 政权	zheng quan	zq	7321
 政治	zheng zhi	zz	1320
@@ -11956,7 +11939,6 @@
 职员	zhi yuan	zy	7519
 职责	zhi ze	zz	3326
 植物	zhi wu	zw	3915
-殖民地	zhi min di	zmd	13271
 止	zhi	z	3025
 止步	zhi bu	zb	17306
 止咳	zhi ke	zk	20692
@@ -12060,7 +12042,6 @@
 中国	zhong guo	zg	729
 中国画	zhong guo hua	zgh	30455
 中华	zhong hua	zh	21349
-中华民族	zhong hua min zu	zhmz	6125
 中级	zhong ji	zj	20452
 中间	zhong jian	zj	1889
 中奖	zhong jiang	zj	8049
@@ -12272,7 +12253,6 @@
 专长	zhuan chang	zc	14409
 专著	zhuan zhu	zz	18827
 专职	zhuan zhi	zz	13892
-专制	zhuan zhi	zz	17036
 专注	zhuan zhu	zz	7159
 砖	zhuan	z	6186
 砖	zhuan	z	6186
@@ -12366,8 +12346,6 @@
 姿势	zi shi	zs	4464
 姿态	zi tai	zt	6886
 资本	zi ben	zb	6830
-资本主义	zi ben zhu yi	zbzy	9043
-资产	zi chan	zc	3495
 资格	zi ge	zg	2290
 资金	zi jin	zj	1851
 资历	zi li	zl	19166
