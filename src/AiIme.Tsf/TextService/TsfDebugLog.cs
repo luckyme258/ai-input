@@ -14,10 +14,11 @@ internal static class TsfDebugLog
 {
     private static readonly object Sync = new();
     private static readonly bool Enabled =
-        string.Equals(Environment.GetEnvironmentVariable("AIIME_TSF_DEBUG"), "1", StringComparison.OrdinalIgnoreCase);
+        !string.Equals(Environment.GetEnvironmentVariable("AIIME_TSF_DEBUG"), "0", StringComparison.OrdinalIgnoreCase);
 
     private static readonly string LogPath = Path.Combine(
-        AppContext.BaseDirectory, "logs", "tsf-debug.log");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "AiIme", "logs", "tsf-debug.log");
 
     public static bool IsEnabled => Enabled;
 

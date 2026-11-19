@@ -58,6 +58,16 @@ internal static class TsfGuids
     // IID_ITfComposition（windows-rs msctf 元数据核对）
     public static readonly Guid IID_ITfComposition = new("20168d64-5a8f-4a5a-b7bd-cfa29f4d0fd9");
 
+    // IID_ITfInsertAtSelection（msctf.tlb / Learn 元数据核对）
+    public static readonly Guid IID_ITfInsertAtSelection = new("55ce16ba-3014-41c1-9ceb-fade1446ac6c");
+
+    // IID_ITfCompositionSink（msctf.tlb / Learn 元数据核对）
+    public static readonly Guid IID_ITfCompositionSink = new("a781718c-579a-4b15-a280-32b8577acc5e");
+
+    // InsertTextAtSelection 标志：NOQUERY 退出时范围置空；QUERYONLY 不真正写入，仅返回落点范围。
+    public const uint TF_IAS_NOQUERY = 1;
+    public const uint TF_IAS_QUERYONLY = 2;
+
     // GUID_TFCAT_TIP_KEYBOARD：键盘类型文本服务类别（C# TSF 源码 + 本机注册表交叉确认）。
     public static readonly Guid GUID_TFCAT_TIP_KEYBOARD = new("34745c63-b2f0-4784-8b67-5e12c8701a31");
 }
@@ -69,4 +79,5 @@ internal static class HResult
     public const int S_FALSE = 1;
     public const int E_NOINTERFACE = unchecked((int)0x80004002);
     public const int E_POINTER = unchecked((int)0x80004003);
+    public const int E_FAIL = unchecked((int)0x80004005);
 }

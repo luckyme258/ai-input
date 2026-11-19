@@ -14,8 +14,8 @@ namespace AiIme.Tsf.Com;
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface ITfRange
 {
-    // 1. GetText(ec, dwflags, pchtext, cchmax, pcch) —— 占位
-    int Placeholder_GetText(uint ec, uint dwflags, IntPtr pchText, uint cchMax, IntPtr pcch);
+    // 1. GetText(ec, dwflags, pchtext, cchmax, pcch)
+    int GetText(uint ec, uint dwFlags, IntPtr pchText, uint cchMax, out uint pcch);
 
     /// <summary>在范围内写入文本（覆盖选区）；pchText 为宽字符指针，cch 为字符数。</summary>
     int SetText(uint ec, uint dwflags, IntPtr pchText, int cch);
@@ -50,8 +50,8 @@ internal interface ITfRange
     // 12. IsEmpty(ec, pfEmpty)
     int Placeholder_IsEmpty(uint ec, IntPtr pfEmpty);
 
-    // 13. Collapse(ec, aPos)
-    int Placeholder_Collapse(uint ec, int aPos);
+    // 13. Collapse(ec, aPos)；TF_ANCHOR_START=0 / TF_ANCHOR_END=1
+    int Collapse(uint ec, int aPos);
 
     // 14. IsEqualStart(ec, pWith, aPos, pfEqual)
     int Placeholder_IsEqualStart(uint ec, IntPtr pWith, int aPos, IntPtr pfEqual);

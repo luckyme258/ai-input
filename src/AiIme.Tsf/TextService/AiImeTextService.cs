@@ -145,7 +145,7 @@ public sealed class AiImeTextService : ITfTextInputProcessor
     private void Cleanup()
     {
         UnadviseKeySink();
-        _composer?.ClearComposition();
+        _composer?.Dispose();
         _keySink?.DisposeCandidateWindow();
         _keySink = null;
         _composition = null;

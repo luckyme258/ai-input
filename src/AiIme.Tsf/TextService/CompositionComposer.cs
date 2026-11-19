@@ -15,10 +15,20 @@ public sealed class CompositionComposer
 {
     private readonly uint _clientId;
     private IntPtr _composition;
+    private readonly CompositionSink _sink;
+    private readonly IntPtr _sinkPtr;
+
+    /// <summary>当前文本服务的 TSF 客户端标识。</summary>
+    public uint ClientId => _clientId;
+
+    /// <summary>传给 StartComposition 的 ITfCompositionSink 接口指针（生命周期随协调器）。</summary>
+    public IntPtr CompositionSinkPtr => _sinkPtr;
 
     public CompositionComposer(uint clientId)
     {
         _clientId = clientId;
+        _sink = new CompositionSink(this);
+        _sinkPtr = Marshal.GetComInterfaceForObject(_sink, typeof(ITfCompositionSink));
     }
 
     /// <summary>当前是否存在进行中的 composition 区间。</summary>
@@ -38,6 +48,10 @@ public sealed class CompositionComposer
         return _composition != IntPtr.Zero;
     }
 
+    /// <summary>判断回调里被终止的区间是否就是当前持有区间（防止把正常结束误判为外部终止）。</summary>
+    public bool IsCurrentComposition(IntPtr pComposition) =>
+        _composition != IntPtr.Zero && _composition == pComposition;
+
     /// <summary>清空当前 composition 引用（释放）。</summary>
     public void ClearComposition()
     {
@@ -48,6 +62,16 @@ public sealed class CompositionComposer
         }
     }
 
+    /// <summary>释放 sink 接口指针（服务停用调用）。</summary>
+    public void Dispose()
+    {
+        ClearComposition();
+        if (_sinkPtr != IntPtr.Zero)
+        {
+            Marshal.Release(_sinkPtr);
+        }
+    }
+
     /// <summary>
     /// 按键回调后调用：把当前拼音串提交到目标上下文（累积阶段，写拼音串到 composition）。
     /// </summary>
@@ -55,7 +79,7 @@ public sealed class CompositionComposer
     /// <param name="composition">当前拼音状态机。</param>
     public void Commit(IntPtr pic, CompositionState composition)
     {
-        CommitText(pic, composition.Pinyin, composition.Candidates.Count);
+        CommitText(pic, composition.Pinyin, composition.Candidates.Count, finalCommit: false);
     }
 
     /// <summary>
@@ -64,7 +88,8 @@ public sealed class CompositionComposer
     /// <param name="pic">OnKeyDown 传入的 ITfContext 原始指针。</param>
     /// <param name="text">要上屏的文本；空串表示结束并清空 composition。</param>
     /// <param name="candidateCount">当前候选数（仅用于日志）。</param>
-    public void CommitText(IntPtr pic, string text, int candidateCount)
+    /// <param name="finalCommit">true 表示这是最终上屏（选词/回车），写入后结束 composition 区间。</param>
+    public void CommitText(IntPtr pic, string text, int candidateCount, bool finalCommit = false)
     {
         if (pic == IntPtr.Zero) return;
 
@@ -75,11 +100,11 @@ public sealed class CompositionComposer
             return;
         }
 
-        var session = new EditSession(context, text, this);
+        var session = new EditSession(context, text, this, finalCommit);
         var sessionPtr = Marshal.GetComInterfaceForObject(session, typeof(ITfEditSession));
         try
         {
-            // 同步 + 读写会话。phrsession 为会话句柄，当前骨架不使用。
+            // 同步 + 读写会话（异步 ASYNCDONTCARE 在本机 comhost 下会话未能存活到回调，提交全挂，回退 SYNC）。
             int hr = context.RequestEditSession(
                 _clientId,
                 sessionPtr,

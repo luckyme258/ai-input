@@ -36,6 +36,13 @@ internal sealed class CandidateWindow : IDisposable
     private const int MarginX = 10;
     private const int PaddingX = 8;
 
+    // 候选窗配色写死（浅色弹出窗），避免依赖系统主题色 / GetSysColor 编组带来的歧义。
+    // COLORREF 为 0x00BBGGRR。
+    private const uint NormalBg = 0x00FFFFFF;      // 白
+    private const uint NormalText = 0x00000000;     // 黑
+    private const uint SelBg = 0x00D77800;          // 蓝 RGB(0,120,215)
+    private const uint SelText = 0x00FFFFFF;       // 白
+
     private static readonly WndProcDelegate WndProc = OnWndProc;
     private static readonly StringBuilder ClassName = new("AiImeCandidateWnd");
 
@@ -115,6 +122,12 @@ internal sealed class CandidateWindow : IDisposable
 
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr ho);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr GetStockObject(int nIndex);
+
+    // DEFAULT_GUI_FONT 库存对象：随系统自带中文字形回退，避免默认 DC 字体缺 CJK 字形。
+    private const int DEFAULT_GUI_FONT = 17;
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
@@ -198,6 +211,8 @@ internal sealed class CandidateWindow : IDisposable
         {
             _lastSignature = signature;
             InvalidateRect(_hwnd, IntPtr.Zero, false);
+            // 本线程不挂独立消息循环，WM_PAINT 不一定被及时派发；直接同步画一帧，保证首屏立即可见文字。
+            Paint(_hwnd);
         }
     }
 
@@ -369,17 +384,23 @@ internal sealed class CandidateWindow : IDisposable
         IntPtr memDc = IntPtr.Zero;
         IntPtr memBmp = IntPtr.Zero;
         IntPtr oldBmp = IntPtr.Zero;
+        IntPtr oldFont = IntPtr.Zero;
         try
         {
             memDc = CreateCompatibleDC(hdc);
             memBmp = CreateCompatibleBitmap(hdc, w, h);
             oldBmp = SelectObject(memDc, memBmp);
 
+            // 选中系统 GUI 字体（含中文字形回退），用完在 finally 恢复。
+            IntPtr hFont = GetStockObject(DEFAULT_GUI_FONT);
+            oldFont = hFont != IntPtr.Zero ? SelectObject(memDc, hFont) : IntPtr.Zero;
+
             // 背景先画到内存 DC，避免直接在屏幕上分块擦除/填充产生闪烁。
-            var hBg = CreateSolidBrush(ColorRef(GetSysColor(COLOR_WINDOW)));
+            var hBg = CreateSolidBrush(NormalBg);
             var full = new RECT { Left = 0, Top = 0, Right = w, Bottom = h };
-            FillRect(memDc, ref full, hBg);
+            bool bgOk = FillRect(memDc, ref full, hBg);
             DeleteObject(hBg);
+            SetBkMode(memDc, 1); // TRANSPARENT：文字背景不擦除，避免盖住高亮底色。
 
             int rows = Math.Min(window._candidates.Count, MaxRows);
             for (int i = 0; i < rows; i++)
@@ -387,20 +408,27 @@ internal sealed class CandidateWindow : IDisposable
                 var rowRect = new RECT { Left = 0, Top = i * RowHeight, Right = w, Bottom = (i + 1) * RowHeight };
                 bool selected = i == window._selected;
 
+                IntPtr hSel = IntPtr.Zero;
+                bool selOk = true;
                 if (selected)
                 {
-                    var hSel = CreateSolidBrush(ColorRef(GetSysColor(COLOR_HIGHLIGHT)));
-                    FillRect(memDc, ref rowRect, hSel);
+                    hSel = CreateSolidBrush(SelBg);
+                    selOk = FillRect(memDc, ref rowRect, hSel);
                     DeleteObject(hSel);
                 }
 
                 var textRect = new RECT { Left = PaddingX, Top = rowRect.Top, Right = rowRect.Right - PaddingX, Bottom = rowRect.Bottom };
                 string label = $"{i + 1}. {window._candidates[i].Text}";
 
-                uint textColor = selected
-                    ? ColorRef(GetSysColor(COLOR_HIGHLIGHTTEXT))
-                    : ColorRef(GetSysColor(COLOR_WINDOWTEXT));
+                uint textColor = selected ? SelText : NormalText;
                 SetTextColor(memDc, textColor);
+
+                if (i < 2)
+                {
+                    var codes = string.Join(" ", label.Select(ch => ((int)ch).ToString("X4")));
+                    TsfDebugLog.Write("CandidateWnd",
+                        $"Paint row{i} sel={selected} label='{label}' codes=[{codes}] rect=({textRect.Left},{textRect.Top},{textRect.Right},{textRect.Bottom}) color=0x{textColor:X8} hSel={hSel} selOk={selOk} bgOk={bgOk} win={w}x{h}");
+                }
 
                 DrawText(memDc, label, label.Length, ref textRect, DT_LEFT | DT_SINGLELINE);
             }
@@ -409,6 +437,7 @@ internal sealed class CandidateWindow : IDisposable
         }
         finally
         {
+            if (oldFont != IntPtr.Zero) SelectObject(memDc, oldFont);
             if (memBmp != IntPtr.Zero) SelectObject(memDc, oldBmp);
             if (memBmp != IntPtr.Zero) DeleteObject(memBmp);
             if (memDc != IntPtr.Zero) DeleteDC(memDc);
@@ -418,6 +447,9 @@ internal sealed class CandidateWindow : IDisposable
 
     [DllImport("gdi32.dll")]
     private static extern int SetTextColor(IntPtr hdc, uint crColor);
+
+    [DllImport("gdi32.dll")]
+    private static extern int SetBkMode(IntPtr hdc, int mode);
 
     private static uint ColorRef(IntPtr sysColor) => unchecked((uint)sysColor.ToInt64());
 

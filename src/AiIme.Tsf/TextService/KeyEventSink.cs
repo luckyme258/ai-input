@@ -31,6 +31,9 @@ public sealed class KeyEventSink : ITfKeyEventSink
     /// <summary>最近已上屏词序列（用于 n-gram 上下文）。</summary>
     private readonly List<string> _committedWords = new();
 
+    /// <summary>最近一次按键携带的 ITfContext 指针（焦点丢失结束 composition 时复用）。</summary>
+    private IntPtr _lastPic;
+
     public KeyEventSink(CompositionState composition, CompositionComposer composer, HabitLearner learner, uint clientId)
     {
         _composition = composition ?? throw new ArgumentNullException(nameof(composition));
@@ -46,6 +49,13 @@ public sealed class KeyEventSink : ITfKeyEventSink
     public int OnSetFocus(int fforeground)
     {
         TsfDebugLog.Write("OnSetFocus", $"ffg={fforeground}");
+        // 焦点离开：取消尚未上屏的本地输入，结束残留 composition 区间，隐藏候选窗。
+        if (fforeground == 0 && _composition.IsComposing)
+        {
+            _composition.Clear();
+            _candidateWindow.Hide();
+            if (_lastPic != IntPtr.Zero) _composer.CommitText(_lastPic, string.Empty, 0);
+        }
         return HResult.S_OK;
     }
 
@@ -66,6 +76,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
     public int OnKeyDown(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
     {
+        _lastPic = pic;
         TsfDebugLog.Write("OnKeyDown", $"entry vk=0x{(int)wparam:X2}");
         try
         {
@@ -89,8 +100,9 @@ public sealed class KeyEventSink : ITfKeyEventSink
                     break;
 
                 case 0x0D: // VK_RETURN
+                case 0x20: // VK_SPACE：空格与回车一致，提交首选候选
                     eaten = _composition.IsComposing;
-                    action = "Enter";
+                    action = vk == 0x20 ? "Space" : "Enter";
                     if (eaten) CommitCandidate(pic, 0, correction: false);
                     break;
 
@@ -245,7 +257,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
             _learner.RecordCommit(word, context, wasCorrection: correction);
             _committedWords.Add(word);
 
-            _composer.CommitText(pic, word, candidates.Count);
+            _composer.CommitText(pic, word, candidates.Count, finalCommit: true);
         }
 
         _composition.Clear();
@@ -254,7 +266,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
     private static bool Consumes(int vk) => vk switch
     {
-        0x08 or 0x1B or 0x0D => true,
+        0x08 or 0x1B or 0x0D or 0x20 => true,
         >= 0x31 and <= 0x39 => true,
         _ => IsLetterVk(vk),
     };
