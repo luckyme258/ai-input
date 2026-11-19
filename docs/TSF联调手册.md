@@ -328,6 +328,11 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 - 现象：Ctrl+A 全选无效——字母 A（0x41）被 `Consumes` 判为可接管，`OnKeyDown` 当作拼音累积并吃掉，宿主收不到快捷键。
 - 处置：`OnTestKeyDown` / `OnKeyDown` 先用 `GetKeyState(VK_CONTROL/VK_MENU)` 判断修饰键；Ctrl/Alt 按下时 `pfEaten=0` 直接透传宿主，不进入拼音/选词分流。覆盖 Ctrl+A/C/V/Z 等。
 
+**退格放行修复（v49）**
+
+- 现象：刚上屏后按退格删不掉正文。根因：`OnTestKeyDown` 对 0x08 无条件 `eat=1` 认领，`OnKeyDown` 本地无拼音可删又返回未吃掉；按键既已被我方认领，宿主不再执行原生退格。
+- 处置：测试阶段是否接管改为与实际能否消费一致——退格/Esc/回车/空格仅在 `IsComposing` 时认领，数字仅在有对应候选时认领；本地无 composition 时退格直接 `pfEaten=0` 放行，由宿主做原生删除。
+
 **遗留 / 待办**
 
 - 编辑器内拼音 inline 预览仍未显示（当前刻意不写区间，避免再次扰动 composition）；后续在长生命周期区间模型稳定后再补 preedit 写入与 composition 显示属性。

@@ -71,13 +71,23 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
     public int OnTestKeyDown(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
     {
-        // 探测阶段：字母、退格、Esc、回车、数字由本输入法接管（仅在有 composition 时）；
+        // 探测阶段：字母累积；退格/回车/空格/数字/Esc 仅在有 composition 时接管。
+        // 本地无 composition 时（如刚上屏后）必须放行，让宿主做原生退格/换行/快捷键。
         // Ctrl/Alt 组合快捷键不接管，透传给宿主（全选/复制/粘贴/撤销等）。
-        bool consume = !IsControlOrAltDown() && Consumes((int)wparam);
+        int vk = (int)wparam;
+        bool consume = !IsControlOrAltDown() && TestConsume(vk);
         pfEaten = consume ? 1 : 0;
-        TsfDebugLog.Write("OnTestKeyDown", $"vk=0x{(int)wparam:X2} eat={pfEaten}");
+        TsfDebugLog.Write("OnTestKeyDown", $"vk=0x{vk:X2} eat={pfEaten} composing={_composition.IsComposing}");
         return HResult.S_OK;
     }
+
+    /// <summary>测试阶段是否由本输入法接管该按键（与 OnKeyDown 实际能否消费保持一致）。</summary>
+    private bool TestConsume(int vk) => vk switch
+    {
+        0x08 or 0x1B or 0x0D or 0x20 => _composition.IsComposing,
+        >= 0x31 and <= 0x39 => _composition.IsComposing && vk - 0x31 < _composition.Candidates.Count,
+        _ => IsLetterVk(vk),
+    };
 
     public int OnTestKeyUp(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
     {
@@ -108,6 +118,13 @@ public sealed class KeyEventSink : ITfKeyEventSink
             switch (vk)
             {
                 case 0x08: // VK_BACK
+                    if (!_composition.IsComposing)
+                    {
+                        // 本地无拼音可删：放行给宿主做原生退格（删除刚上屏的正文）。
+                        TsfDebugLog.Write("OnKeyDown", "Backspace passthrough (not composing)");
+                        pfEaten = 0;
+                        return HResult.S_OK;
+                    }
                     eaten = _composition.Backspace();
                     action = "Backspace";
                     if (eaten) _composer.Commit(pic, _composition);
@@ -284,13 +301,6 @@ public sealed class KeyEventSink : ITfKeyEventSink
         _composition.Clear();
         _candidateWindow.Hide();
     }
-
-    private static bool Consumes(int vk) => vk switch
-    {
-        0x08 or 0x1B or 0x0D or 0x20 => true,
-        >= 0x31 and <= 0x39 => true,
-        _ => IsLetterVk(vk),
-    };
 
     private static bool IsLetterVk(int vk) => vk is >= 0x41 and <= 0x5A;
 
