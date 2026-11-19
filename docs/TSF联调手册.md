@@ -1,0 +1,264 @@
+# AiIme TSF 文本服务真机联调手册
+
+> 阶段：骨架已编译通过（0 警告 0 错误，38 测试全绿），但文本服务**尚未在真机以管理员身份注册、未被系统加载过**。
+> 本手册用于第一次管理员环境注册加载，验证"能被系统创建 → 按键能进 sink"，再逐步补上屏写入。
+
+## 1. 前置条件（目标机）
+
+- Windows 10/11 x64。
+- 已安装 **.NET 8 共享运行时（Microsoft.NETCore.App 8.0.x）**。
+  - 本 comhost 进程不跑 WPF，理论上只需核心运行时，**不需要** Desktop 运行时；
+  - 若加载时报 `Microsoft.WindowsDesktop.App` 缺失，再安装 .NET 8 Desktop Runtime。
+  - 检查命令：`dotnet --list-runtimes`，应看到 `Microsoft.NETCore.App 8.0.x`。
+- 发布目录整体拷到目标机（路径含中文/空格也可，但**注册后不要移动目录**——注册表 InprocServer32 记录的是绝对路径，移动后需重新注册）。
+
+## 2. 发布目录产物（`dist\tsf-win-x64\`）
+
+框架依赖部署，目录内必须齐备：
+
+| 文件 | 作用 |
+|---|---|
+| `AiIme.Tsf.comhost.dll` | 原生 COM 主机，系统 CoCreateInstance 加载入口 |
+| `AiIme.Tsf.dll` | 文本服务托管实现 |
+| `AiIme.Tsf.deps.json` | Tsf 程序集依赖清单（comhost 加载时按此名查找） |
+| `AiIme.Tsf.runtimeconfig.json` | Tsf 运行时配置（框架/rollForward） |
+| `AiIme.Core.dll` | 共享 Core（词典/学习/排序/状态机） |
+| `Microsoft.Data.Sqlite.dll`、`SQLitePCLRaw.*.dll`、`e_sqlite3.dll` | 本地学习存储依赖 |
+| `data\dict\*.tsv` + 3 个 LICENSE | 基础词库 |
+| `AiIme.Tsf.RegisterTool.exe/.dll` | 注册/卸载命令行工具 |
+
+> 注意：comhost 加载 `AiIme.Tsf.dll` 时，运行时按**同名** `AiIme.Tsf.deps.json` / `AiIme.Tsf.runtimeconfig.json` 解析；
+> 这两份已在 RegisterTool 项目里固化为发布复制项，`dotnet publish` 会自动带出，无需手动补。
+
+## 3. 注册（管理员）
+
+### 方式 A：一键脚本
+
+在**管理员 PowerShell** 中，仓库根目录下（真机为 Windows PowerShell 5.1，**不要加 `pwsh` 前缀**）：
+
+```powershell
+& .\tools\Install-Tsf.ps1 -Action Register
+```
+
+### 方式 B：直接运行注册工具
+
+```powershell
+cd dist\tsf-win-x64
+.\AiIme.Tsf.RegisterTool.exe register
+```
+
+成功输出：`注册完成。可在 控制面板\时钟和区域\语言\键盘 和语言栏中查看 AiIme 拼音。`
+
+注册做了三件事：
+1. 直写 `HKLM\SOFTWARE\Classes\CLSID\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7c8f90}\InprocServer32` → comhost.dll 绝对路径，`ThreadingModel=Both`；
+2. COM 调用 `ITfInputProcessorProfiles.Register` + `AddLanguageProfile`（简体中文 0x0804，profile GUID `9a1c7d42-3e6b-4f0a-8c5d-2b7e1f0a9c34`）；
+3. 直写 profile 节点 `Enable=1`（DWORD）。`AddLanguageProfile` 本身不写启用标志；本机正常 profile 节点都带 `Enable`（1 启用 / 0 禁用），缺该值时语言列表可能不把本输入法列为可用，故注册后补写。
+
+### 3.1 注册后确认注册表
+
+```powershell
+Get-ItemProperty "HKLM:\SOFTWARE\Classes\CLSID\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7c8f90}\InprocServer32"
+```
+
+应看到 `(默认)` = comhost.dll 绝对路径，`ThreadingModel` = `Both`。
+
+再确认语言 profile 节点已落地（`0x00000804` 即简体中文）：
+
+```powershell
+Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7c8f90}\LanguageProfile" -Recurse
+# 末级 profile 键内 Description 应为 "AiIme 拼音"
+```
+
+## 4. 加载与按键验证（第一阶段目标）
+
+### 4.0 开启临时调试日志
+
+默认关闭。在**注册工具/输入法被加载的同一会话环境**里设置环境变量后再启动输入框架：
+
+```powershell
+# 当前窗口生效（设好后重启 ctfmon / 注销重登，让加载 comhost 的进程继承到变量）
+$env:AIIME_TSF_DEBUG = "1"
+```
+
+日志位置：发布目录 `logs\tsf-debug.log`（comhost 同目录），UTF-8 追加，带时间戳与线程号。
+
+埋点位置与含义：
+
+| 日志 tag | 出现时机 | 排查看点 |
+|---|---|---|
+| `Activate` | 文本服务被系统激活 | 含 threadMgr/clientId；若整段无记录 → 服务根本没被创建/加载 |
+| `AdviseSink` | 挂接按键 sink | 成功给 cookie；失败会记录 QueryInterface 失败 HRESULT |
+| `Deactivate` | 服务停用 | 对照 Activate 看生命周期 |
+| `OnTestKeyDown` | TSF 先做按键探测 | 有记录说明 sink 已挂、按键被探测到；`eat=1` 表示本输入法声称接管 |
+| `OnKeyDown` | 实际按键回调 | 含 VK、是否消费、当前拼音串、候选数 |
+| `Commit` | 提交编辑会话 | 含 RequestEditSession HRESULT、待上屏文本、候选数；非 S_OK 看 HEX |
+| `EditSession` | 会话回调进入 | 含编辑 cookie、文本、StartComposition/EndComposition/SetText 的 HRESULT |
+| `CandidateWnd` | 自绘候选窗创建 | 含 hwnd；窗口创建失败会在此体现 |
+
+> 联调稳定后这些埋点可整体移除（`TsfDebugLog` + 各处 `TsfDebugLog.Write`）。
+
+> 当前上屏链路：`OnKeyDown` → `CompositionState` 累积 → `RequestEditSession` → 会话内 `GetSelection` 取选区 → `StartComposition`/`SetText` 覆盖写 → `EndComposition`。
+> 本轮验证：服务被系统激活、按键回调进入 sink、会话内取选区写入拼音串、候选窗弹出、回车/数字选词上屏。
+
+1. 打开记事本（或任意标准编辑框）。
+2. 语言栏切到"AiIme 拼音"（若未出现，注销/重登或重启 `ctfmon` 后再看；已通过 `Set-WinUserLanguageList` 加入中文输入方法列表）。
+3. 敲字母、退格、回车、数字、Esc，观察：
+   - 服务是否被激活（`Activate` 被调用）；
+   - 按键是否进入 `KeyEventSink.OnKeyDown`；
+   - 候选窗是否在编辑框附近弹出、列出候选；
+   - 回车/数字选词是否上屏。
+
+## 5. 卸载（管理员）
+
+```powershell
+& .\tools\Install-Tsf.ps1 -Action Unregister
+# 或
+.\AiIme.Tsf.RegisterTool.exe unregister
+```
+
+卸载对称清理：先移除 TSF profile，再删 COM CLSID 项。
+
+## 6. 排查清单
+
+| 现象 | 可能原因 | 排查/处理 |
+|---|---|---|
+| 注册工具提示"未找到 comhost" | 发布目录缺 `AiIme.Tsf.comhost.dll` | 重新 `dotnet publish`，核对第 2 节目录清单 |
+| 写 HKLM / profile 失败（HRESULT 非 0） | 未以管理员运行 | 用管理员 PowerShell 重跑注册 |
+| 语言栏看不到 AiIme 拼音 | profile 未注册成功 / 缓存未刷新 | 复核注册表 CLSID 项；注销重登或重启 `ctfmon.exe` |
+| 切到该输入法后敲键无反应 | comhost 加载失败 / 运行时缺失 | 见下两条；事件查看器→应用程序日志查 .NET / COM 报错 |
+| 报缺 `Microsoft.NETCore.App` | 目标机未装 .NET 8 共享运行时 | 安装 .NET 8 Desktop/Shared Runtime x64 |
+| 报缺 `Microsoft.WindowsDesktop.App` | 被判定需桌面框架 | 安装 .NET 8 Desktop Runtime x64；或复查 runtimeconfig |
+| comhost 进程崩溃/退出 | vtable 错位、会话时序异常、原生库缺失 | 事件查看器查崩溃模块；核对 `e_sqlite3.dll` 在位 |
+| `logs\tsf-debug.log` 未生成 | 未设 `AIIME_TSF_DEBUG=1`，或加载 comhost 的进程未继承环境变量 | 设变量后重启 `ctfmon` 或注销重登；确认变量对当前会话/系统生效 |
+| 词典未召回候选 | `data\dict` 未随目录拷到目标机 | 核对 `data\dict\*.tsv` 在位；可用环境变量 `AIIME_DICT_DIR` 指定目录 |
+| 注册后移动了目录 | 注册表记录绝对路径，已失效 | 重新 `unregister` → 拷到新位置 → `register` |
+| `AddLanguageProfile` 报 `0x800706F4`（空引用指针）或直调返回随机 TSF 错误码 | 注册逻辑跑在 CLR 默认 **MTA** 线程，而 TSF profiles 对象为 Apartment 模型，跨套间编组把引用指针转发给代理 | 注册/卸载必须在显式 **STA 线程**上执行（`TsfRegistrar.RunOnStaThread`）；切勿在 MTA 主线程直接调 profiles 接口 |
+| 宿主进程在 `coreclr.dll` 固定偏移访问冲突（0xc0000005），无托管堆栈、无转储 | 实现并暴露给原生回调的 COM 接口方法缺 `[PreserveSig]`，运行时按"最后一个 out 参数当返回值"推断本机签名，造成 vtable 签名错位踩内存 | `ITfTextInputProcessor`/`ITfKeyEventSink`/`ITfEditSession` 每个返回 HRESULT 的方法都必须标 `[PreserveSig]`（已修复） |
+| 引擎初始化抛"Format of the initialization string … index 0" | 无参 `SqliteProfileStore()` 把数据源**路径**直接传给私有"连接串"构造函数，绕过了 `SqliteConnectionStringBuilder` 生成合法连接串 | 无参构造必须走 `NewConnectionString(DefaultDataSource())`（已修复）；勿把路径直接当连接串传 |
+| 词典目录解析抛"The path is empty" | .NET COM Hosting（comhost）在部分宿主进程里 `AppContext.BaseDirectory` 返回空串 | `DictPaths.ResolveDefaultDirectory` 增加程序集目录锚点参数；服务端用 `typeof(...).Assembly.Location` 目录作锚点传入（已修复） |
+
+### 快速命令
+
+```powershell
+# 查看已装运行时
+dotnet --list-runtimes
+
+# 重启输入框架（刷新输入法列表）
+Stop-Process -Name ctfmon -Force; Start-Process ctfmon
+
+# 事件查看器最近应用错误
+Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2} -MaxEvents 10 |
+  Select-Object TimeCreated, ProviderName, Message
+```
+
+## 7. 尚未实现 / 留待真机联调补全
+
+- **标准 TSF 候选元素登记**：`ITfCandidateListUIElement` + `ITfUIElementMgr.Begin/Update/EndUIElement` 尚未接入；当前候选窗为自绘原生 Win32 置顶窗，未纳入标准 UIElement 协议（不支持 UILess 宿主读取）。
+- **候选翻页 / 上下选择**：当前只高亮首项，数字 1–9 直选；无翻页、无方向键移动选中。
+- **composition 终止回调**：`ITfCompositionSink.OnCompositionTerminated` 尚未实现（外部终止区间时同步本地状态）。
+- **上下文跨焦点重置**：`_committedWords` 上下文目前只在 sink 内存内维护，切换焦点 / 服务停用后是否重置未处理。
+- **跨应用稳定性**：不同编辑框（UWP/Chrome/记事本）的会话时序需现场逐一验证。
+
+> 编辑会话真实写入已落地：`EditSession.DoEditSession` 内 `GetSelection` 取范围 → `SetText` 覆盖写。
+> composition 区间生命周期已接入：首次输入 `StartComposition`，清空/结束时 `EndComposition`，引用由 `CompositionComposer` 跨会话持有。
+> 选词交互已接入：回车取首选、数字 1..9 选词、Esc 清空；候选上屏后调 `RecordCommit` 回写学习（选非首项记纠正权重）。
+> 自绘候选窗已接入：原生 Win32 置顶窗（GDI 绘制，不依赖 WPF/桌面运行时），列出候选、高亮首项，随按键更新；无候选或上屏后隐藏。
+> 类别注册 `TFCAT_TIP_KEYBOARD` 已落地（`ITfCategoryMgr.RegisterCategory`，经 `TF_CreateCategoryMgr` 创建对象）。
+
+### 7.1 当前按键交互（TSF 外壳）
+
+| 按键 | 行为 |
+|---|---|
+| 字母 A–Z | 累积拼音，拼音串写入 composition |
+| 退格 | 删一个拼音字母 |
+| 回车 | 取首选候选词上屏；无候选则上屏拼音串 |
+| 数字 1–9 | 选对应序号候选词上屏（选非首项记纠正） |
+| Esc | 清空 composition 与状态机 |
+
+候选词上屏后经 `HabitLearner.RecordCommit(word, context, wasCorrection)` 回写词频与 n-gram；`PreviousWords` 取最近已上屏词序列。
+
+## 8. 关键 GUID / 常量（核对过，勿凭记忆改）
+
+- CLSID_AiImeTextService = `8f3c2a10-7d44-4c9b-9e2a-1b6d5a7c8f90`
+- GUID_AiImeProfile = `9a1c7d42-3e6b-4f0a-8c5d-2b7e1f0a9c34`
+- LangIdZhCn = `0x0804`
+- CLSID_TF_ThreadMgr = `529a9e6b-6587-4f23-ab9e-9c7d683e3c50`
+- CLSID_TF_InputProcessorProfiles = `33c53a50-f456-4884-b049-85fd643ecfed`
+- IID_ITfCategoryMgr = `c3acefb5-f69d-4905-938f-fcadcf4be830`
+- GUID_TFCAT_TIP_KEYBOARD = `34745c63-b2f0-4784-8b67-5e12c8701a31`
+- IID_ITfContextComposition = `d40c8aae-ac92-4fc7-9a11-0ee0e23aa39b`
+- IID_ITfComposition = `20168d64-5a8f-4a5a-b7bd-cfa29f4d0fd9`
+
+### 类别节点确认
+
+```powershell
+Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7c8f90}\Category" -Recurse
+# 应见 Category\Category\{34745C63-…}（键盘类别）与 Category\Item\{8F3C2A10-…}（本服务）
+```
+
+## 9. 后期联调根因记录（定位 / 闪烁 / 召回）
+
+> 本节记录真机联调阶段逐一二分定位的根因与对应修复，便于回查。对应产物：`TextService/CandidateWindow.cs`、`CaretRectSession.cs`，Core 层 `Composition/PinyinSegmenter.cs`、`Dictionary/TrieDictionary.cs`。
+
+### 9.1 候选窗定位：折叠光标零高矩形被误判为空、退化角落矩形被当成有效位置
+
+**真机症状**
+
+- 第一键定位基本正常，第二键起候选窗跳到屏幕右下角/边缘角落；
+- 大屏、小屏分别复现：首行高亮被上沿裁切，或窗口贴到侧边。
+
+**根因链**
+
+1. **折叠光标矩形高为 0**：选区为空（折叠）时 `ITfContextView.GetTextExt` 返回的矩形 `Height=0`（宽也常为 0），但仍携带有效的 X/Y 落点。旧判定按「宽>0 且高>0」才算有效，把折叠光标误判为空矩形。
+2. **空矩形走兜底**：判空后落到「宿主客户区右下」兜底路径；空文档/退化坐标进一步退化成屏幕右下角角落矩形。
+3. **自指句柄混入宿主判断**：父 HWND 未排除候选窗自身句柄，窗口句柄被误当成宿主。
+4. 早期窗口还以宿主为 owner，宿主焦点/销毁波动会连带弹窗位置异常。
+
+**修复（v25，`CandidateWindow.PositionNear` / `CaretRectSession`）**
+
+- `CaretRectSession`：折叠光标高 0 但 X/Y 有效即保留；仅全零矩形判为无效。
+- `PositionNear`：
+  - 排除自指句柄（`parent == _hwnd` → 按 `IntPtr.Zero` 处理）；
+  - 拒绝角落退化矩形：`Left ≥ 屏宽-4` 或 `Top ≥ 屏高-4`，或全零，均判无效；
+  - 沿用最近一次有效光标矩形与宿主句柄（`_lastGoodCaret` / `_lastGoodHost`），单次取失败不回退到角落；
+  - 折叠光标高按默认行高 `RowHeight` 估算；主路径贴光标下方，下方放不下翻到光标上方；
+  - 窗口不再以宿主为 owner（`CreateWindowEx` 的 `hWndParent=NULL`）。
+
+### 9.2 候选窗闪烁：类背景擦除 + 屏幕 DC 分块绘制 + 无效重绘
+
+**真机症状**：每次按键候选窗整体白闪；位置/内容未变时也闪。
+
+**根因链**
+
+1. **系统先擦背景**：窗口类挂了非空 `hbrBackground`，每帧 `WM_ERASEBKGND` 先整块擦成白背景，随后 `WM_PAINT` 才画内容，两层交替产生白闪。
+2. **未双缓冲**：直接在屏幕 DC 上逐行 `FillRect` / `DrawText`，分块可见。
+3. **无效刷新**：候选文本、选中项、位置尺寸都没变时，仍每按键 `InvalidateRect` + `SetWindowPos`，触发无谓重排/重绘。
+
+**修复（`CandidateWindow`）**
+
+- 注册类 `hbrBackground = IntPtr.Zero`；`WM_ERASEBKGND` 直接返回 1（不擦除），背景交给 `WM_PAINT` 统一填充。
+- `WM_PAINT` 双缓冲：内存 DC + 兼容位图，整窗背景/高亮行/文字画到内存位图，最后 `BitBlt` 一次贴屏。
+- 内容签名（选中序号 + 前 9 条候选文本）不变则不 `InvalidateRect`；位置/尺寸不变则不重复 `SetWindowPos`。
+
+### 9.3 召回：无音节切分导致连续拼音命中 0，裸前缀带出整棵子树
+
+**真机/探针症状**：单字母召回泛滥（`n≈737`、`h≈1950`、`s≈3312`）；连续拼音 `nih`、`nihao` 召回 0。
+
+**根因链**
+
+1. 全拼索引键以 `\0` 分隔音节（如 `ni\0hao`）；原 `Recall` 把整串当裸字母前缀在全拼树走，走到节点后 `Collect` 整棵子树，单字母前缀即带出该音节下全部词条。
+2. **无音节切分**：连续拼音（`nihao`、`nih`）未切成音节序列；不成音节的字母在全拼路径上失败，首字母索引也匹配不上，故 `nih=0`。
+
+**修复（Core 层）**
+
+- 新增 `Composition/PinyinSegmenter.cs`：最长匹配切分；合法音节集合由词典加载时喂入；含空格直接分段；拼到一半的残片保留做前缀兜底。
+- `TrieDictionary.Recall`：
+  - 先切音节，`CollectFull` 按音节序列导航——非末音节后必须跟 `\0` 分隔符，末音节允许未拼完前缀并收集其子树；
+  - 全拼无命中才退回首字母索引（如 `sj`→世界/时间）；
+  - 结果按文本去重、按基础词频降序，`MaxRecall=300` 封顶。
+- 真实词典探针实测：`nihao`→你好（1）；`nih`→你好/泥灰岩（2）；`ni`→227；`wo`→42；单字母被封顶到 300。
+
+### 9.4 仍待复查的观察项
+
+- 早期截图中首行高亮背景在、但高亮文字未见；v25 已在 `CandidateWnd: update count=… top=[…]` 日志记录前 3 条候选文本，真机复测时先核对 `Candidate[0].Text` 是否为空。
+- 编辑会话日志曾出现 `composing=False`，`StartComposition`/`SetText` 埋点行缺失，composition 区间引用跨按键保留情况待后续修生命周期时回看 `CompositionComposer` 与 `EditSession`。

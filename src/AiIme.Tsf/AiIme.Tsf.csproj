@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AiIme.Tsf</RootNamespace>
+    <Copyright>Copyright (C) 2026 AiIme contributors. Licensed under AGPL-3.0-or-later.</Copyright>
+
+    <!--
+      COM 主机：生成 AiIme.Tsf.comhost.dll，供 TSF 通过 CoCreateInstance 加载。
+      注意：COM 组件只支持框架依赖部署（不能自包含单文件），目标机需安装 .NET 8 桌面/共享运行时。
+    -->
+    <EnableComHosting>true</EnableComHosting>
+    <EnableRegFreeCom>false</EnableRegFreeCom>
+
+    <!-- comhost 原生资产默认随 SDK 位数；当前先按 x64 发布。 -->
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AiIme.Core\AiIme.Core.csproj" />
+  </ItemGroup>
+
+</Project>

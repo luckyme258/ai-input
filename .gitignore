@@ -1,0 +1,24 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# 本地数据（学习库、缓存），不入库
+data/local/
+*.db
+*.db-shm
+*.db-wal
+
+# 构建产物
+publish/
+dist/
+
+# 调试日志
+logs/
+*.log
+*.old.log
+
+# IDE
+.idea/
+*.suo

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AiIme.Tsf.RegisterTool</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Copyright>Copyright (C) 2026 AiIme contributors. Licensed under AGPL-3.0-or-later.</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AiIme.Tsf\AiIme.Tsf.csproj" />
+  </ItemGroup>
+
+  <!--
+    comhost 被系统进程加载 AiIme.Tsf.dll 时，运行时按同目录下
+    AiIme.Tsf.deps.json / AiIme.Tsf.runtimeconfig.json 解析依赖；
+    从本工具发布时这两份资产不会随库引用自动带出，显式复制到输出/发布目录。
+  -->
+  <ItemGroup>
+    <Content Include="..\AiIme.Tsf\bin\$(Configuration)\net8.0-windows\win-x64\AiIme.Tsf.deps.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             Link="AiIme.Tsf.deps.json" />
+    <Content Include="..\AiIme.Tsf\bin\$(Configuration)\net8.0-windows\win-x64\AiIme.Tsf.runtimeconfig.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             Link="AiIme.Tsf.runtimeconfig.json" />
+  </ItemGroup>
+
+</Project>

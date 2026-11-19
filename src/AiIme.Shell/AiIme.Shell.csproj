@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AiIme.Shell</RootNamespace>
+    <Copyright>Copyright (C) 2026 AiIme contributors. Licensed under AGPL-3.0-or-later.</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AiIme.Core\AiIme.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,53 @@
+<Window x:Class="AiIme.Shell.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AiIme" Width="560" Height="380"
+        WindowStyle="SingleBorderWindow" Topmost="True"
+        Background="#F5F6F8" FontFamily="Microsoft YaHei UI" FontSize="14">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 已拼好的句子 -->
+        <DockPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock DockPanel.Dock="Left" Text="已上屏：" Foreground="#666" VerticalAlignment="Center" />
+            <TextBlock x:Name="ComposedText" Text="" Foreground="#111" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
+        </DockPanel>
+
+        <!-- 拼音输入行 -->
+        <Border Grid.Row="1" Background="White" BorderBrush="#D9DCE1" BorderThickness="1" CornerRadius="6" Padding="8,6">
+            <TextBox x:Name="PinyinInput"
+                     Background="Transparent" BorderThickness="0"
+                     FontSize="16" MinHeight="28"
+                     VerticalContentAlignment="Center"
+                     PreviewKeyDown="PinyinInput_PreviewKeyDown"
+                     TextChanged="PinyinInput_TextChanged"
+                     ToolTip="输入拼音，回车或数字选词；Esc 清空；Ctrl+Enter 粘贴上屏" />
+        </Border>
+
+        <!-- 候选列表 -->
+        <ListBox x:Name="CandidateList" Grid.Row="2" Margin="0,8,0,0"
+                 Background="White" BorderBrush="#D9DCE1" BorderThickness="1"
+                 SelectionMode="Single" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 MouseDoubleClick="CandidateList_MouseDoubleClick"
+                 KeyDown="CandidateList_KeyDown">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal" Margin="6,4">
+                        <TextBlock Text="{Binding Index}" Width="28" Foreground="#888" />
+                        <TextBlock Text="{Binding Text}" Width="160" Foreground="#111" />
+                        <TextBlock Text="{Binding Pinyin}" Foreground="#999" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- 状态栏 -->
+        <TextBlock Grid.Row="3" Margin="0,8,0,0" Foreground="#777" FontSize="12"
+                   Text="↑/↓ 选择 · 回车/双击 上屏词 · 数字键选词 · Esc 清空 · Ctrl+Enter 粘贴整句" />
+    </Grid>
+</Window>
