@@ -370,7 +370,7 @@ internal sealed class CandidateWindow : IDisposable
         foreach (var c in Visible())
         {
             // 与 Paint 中一致的「序号. 词」标签，按真实字形宽度测量。
-            string label = $"{_pageOffset + i + 1}. {c.Text}";
+            string label = $"{i + 1}. {c.Text}";
             if (GetTextExtentPoint32W(dc, label, label.Length, out SIZE sz))
                 max = Math.Max(max, PaddingX * 2 + sz.cx);
             i++;
@@ -470,7 +470,7 @@ internal sealed class CandidateWindow : IDisposable
                 }
 
                 var textRect = new RECT { Left = PaddingX, Top = rowRect.Top, Right = rowRect.Right - PaddingX, Bottom = rowRect.Bottom };
-                string label = $"{absolute + 1}. {window._candidates[absolute].Text}";
+                string label = $"{i + 1}. {window._candidates[absolute].Text}";
 
                 uint textColor = selected ? SelText : NormalText;
                 SetTextColor(memDc, textColor);

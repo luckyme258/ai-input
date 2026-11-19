@@ -43,9 +43,6 @@ public sealed class KeyEventSink : ITfKeyEventSink
     /// <summary>英文（ASCII）直输模式：开启后字母/数字/空格/回车一律放行宿主，不进拼音累积。</summary>
     private bool _englishMode;
 
-    /// <summary>Shift 是否为独立敲击（未与其它键组合）；用于在 keyup 判定是否切换中英。</summary>
-    private bool _shiftTap;
-
     private const int VkControl = 0x11;
     private const int VkMenu = 0x12;
     private const short KeyDownMask = unchecked((short)0x8000);
@@ -144,9 +141,6 @@ public sealed class KeyEventSink : ITfKeyEventSink
         {
             int vk = (int)wparam;
 
-            // 非 Shift 键按下即说明 Shift 不是独立敲击，keyup 不再触发中英切换。
-            if (!IsShiftVk(vk)) _shiftTap = false;
-
             // Ctrl/Alt 组合快捷键透传给宿主，不作为拼音/选词处理。
             if (IsControlOrAltDown())
             {
@@ -161,8 +155,14 @@ public sealed class KeyEventSink : ITfKeyEventSink
             switch (vk)
             {
                 case VkShift or VkLShift or VkRShift:
-                    // 仅记录敲击意图，不接管按键；切换在 OnKeyUp 判定为独立敲击后执行。
-                    _shiftTap = true;
+                    // Shift 按下即切换中文/英文直输；不接管按键（eaten=false），宿主仍保留 Shift 修饰状态。
+                    _englishMode = !_englishMode;
+                    if (_composition.IsComposing) _composition.Clear();
+                    _selectedIndex = 0;
+                    _pageOffset = 0;
+                    _candidateWindow.Hide();
+                    if (_composer.HasComposition) _composer.CommitText(pic, string.Empty, 0);
+                    TsfDebugLog.Write("OnKeyDown", $"Shift toggle englishMode={_englishMode}");
                     eaten = false;
                     action = "Shift";
                     break;
@@ -173,8 +173,8 @@ public sealed class KeyEventSink : ITfKeyEventSink
                         pfEaten = 0;
                         return HResult.S_OK;
                     }
-                    _selectedIndex = 0;
-                    _pageOffset = 0;
+                    // 当前页首行（不跨页）。
+                    _selectedIndex = _pageOffset;
                     eaten = true;
                     action = "Home";
                     break;
@@ -185,9 +185,9 @@ public sealed class KeyEventSink : ITfKeyEventSink
                         pfEaten = 0;
                         return HResult.S_OK;
                     }
-                    int last = _composition.Candidates.Count - 1;
-                    _selectedIndex = last;
-                    _pageOffset = (last / VisibleRows) * VisibleRows;
+                    // 当前页末行（不跨页），末行不超过候选总数。
+                    int lastVisible = Math.Min(_pageOffset + VisibleRows - 1, _composition.Candidates.Count - 1);
+                    _selectedIndex = lastVisible;
                     eaten = true;
                     action = "End";
                     break;
@@ -417,25 +417,7 @@ public sealed class KeyEventSink : ITfKeyEventSink
 
     public int OnKeyUp(IntPtr pic, IntPtr wparam, IntPtr lparam, out int pfEaten)
     {
-        int vk = (int)wparam;
-        TsfDebugLog.Write("OnKeyUp", $"vk=0x{vk:X2}");
-
-        // Shift 独立敲击（未与其它键组合）：切换中文/英文直输模式。
-        if (IsShiftVk(vk) && _shiftTap)
-        {
-            _shiftTap = false;
-            _englishMode = !_englishMode;
-
-            // 切换时丢弃未上屏的中文输入与候选窗；若持有区间则结束它。
-            if (_composition.IsComposing) _composition.Clear();
-            _selectedIndex = 0;
-            _pageOffset = 0;
-            _candidateWindow.Hide();
-            if (_composer.HasComposition) _composer.CommitText(pic, string.Empty, 0);
-
-            TsfDebugLog.Write("OnKeyUp", $"Shift toggle englishMode={_englishMode}");
-        }
-
+        TsfDebugLog.Write("OnKeyUp", $"vk=0x{(int)wparam:X2}");
         pfEaten = 0;
         return HResult.S_OK;
     }
