@@ -262,3 +262,43 @@ Get-ChildItem "HKLM:\SOFTWARE\Microsoft\CTF\TIP\{8f3c2a10-7d44-4c9b-9e2a-1b6d5a7
 
 - 早期截图中首行高亮背景在、但高亮文字未见；v25 已在 `CandidateWnd: update count=… top=[…]` 日志记录前 3 条候选文本，真机复测时先核对 `Candidate[0].Text` 是否为空。
 - 编辑会话日志曾出现 `composing=False`，`StartComposition`/`SetText` 埋点行缺失，composition 区间引用跨按键保留情况待后续修生命周期时回看 `CompositionComposer` 与 `EditSession`。
+
+### 9.5 候选窗 WM_PAINT 无限重绘循环（v45 修复）
+
+**真机症状**：候选窗持续白闪/重绘；日志在 1 秒内刷出上百条 `Paint` 行；刷屏抢占宿主消息线程，打乱编辑会话与光标处理顺序，叠加加剧上屏间歇失败。
+
+**根因链**
+
+1. `WM_PAINT` 处理器用 `GetDC` 直接绘制，结束后**没有校验/清空更新区**（缺 `ValidateRect` 或 BeginPaint/EndPaint）。
+2. 窗口更新区持续为脏，系统不断重投 `WM_PAINT`，形成自激重绘循环。
+
+**修复（`CandidateWindow.OnWndProc`）**
+
+- `WM_PAINT` 绘制后调用 `ValidateRect(hwnd, NULL)` 清空更新区；复测确认候选窗不再疯狂闪烁/重绘。
+
+### 9.6 composition 区间生命周期：本地指针复用陈旧区间（未闭环）
+
+**真机症状（v43→v45 基线，不闪退）**
+
+- 拼音 inline 预览在编辑器内不可见；
+- 回车 / 数字 / 空格上屏间歇成功：隔 4–5 次、甚至 7–12 次才成功一次；
+- 上屏后退格删不掉刚提交的字；Home/End/Delete 正常。
+
+**日志观测**
+
+- `StartComposition` 每次返回 `S_OK`，`Composition.GetRange` / `SetText` / `readback` 均 `S_OK` 且回读非空，但文本未必固化进文档；
+- 建区间数量明显多于 `OnCompositionTerminated` 回调数量：大量区间未收到终止通知，本地 `_composition` 指针在「存活/已死」之间复用；写进陈旧/脱锚区间的文本在 `EndComposition` 后被宿主丢弃；
+- 光标矩形在连续失败后停在同一位置不再前进，选区/落点状态随失败累积失同步。
+
+**已核对排除**
+
+- `ITfContext` / `ITfRange` / `ITfComposition` / `ITfContextComposition` / `ITfInsertAtSelection` / `ITfCompositionSink` 的 IID 与 vtable 槽位顺序均与 TLB 镜像、windows-rs 元数据一致，不存在调度错位；
+- 所有返回 HRESULT 的回调方法均已标 `[PreserveSig]`；编辑会话内无托管异常抛出。
+
+**后续方向（待真机验证）**
+
+- 对齐 Weasel：一次输入 burst 内只建一条长生命周期 composition，后续按键复用同一 `_pComposition` 更新 preedit，仅最终上屏才 `EndComposition`；避免每次按键新建/回收区间；
+- 补 composition 显示属性（`TF_ATTR_INPUT` / `GUID_PROP_COMPOSING`），让宿主按输入态渲染 preedit；
+- 提交前校验本地持有区间是否仍有效；失效区间不要复用其 GetRange 写入；
+- 复核 .NET CCW/RCW 生命周期：composition 出参引用计数、sink CCW 存活、会话 CCW 的 AddRef/Release 配对。
+

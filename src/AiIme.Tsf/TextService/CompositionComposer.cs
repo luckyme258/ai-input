@@ -100,18 +100,37 @@ public sealed class CompositionComposer
             return;
         }
 
-        var session = new EditSession(context, text, this, finalCommit);
+        // 空串：结束并清空当前区间。
+        if (text.Length == 0)
+        {
+            RunSession(context, SessionMode.Abort, string.Empty);
+            return;
+        }
+
+        // 独立会话先建区间（对齐 Weasel：建区间与写文本分开）。
+        if (!HasComposition)
+        {
+            RunSession(context, SessionMode.Ensure, string.Empty);
+        }
+
+        RunSession(context, finalCommit ? SessionMode.Commit : SessionMode.Preedit, text);
+        TsfDebugLog.Write("Commit", $"dispatched text='{text}' candidates={candidateCount} final={finalCommit}");
+    }
+
+    /// <summary>在一个同步读写编辑会话内执行指定模式。</summary>
+    private void RunSession(ITfContext context, SessionMode mode, string text)
+    {
+        var session = new EditSession(context, this, mode, text);
         var sessionPtr = Marshal.GetComInterfaceForObject(session, typeof(ITfEditSession));
         try
         {
-            // 同步 + 读写会话（异步 ASYNCDONTCARE 在本机 comhost 下会话未能存活到回调，提交全挂，回退 SYNC）。
+            // 同步 + 读写会话（异步 ASYNCDONTCARE 在本机 comhost 下会话未能存活到回调，回退 SYNC）。
             int hr = context.RequestEditSession(
                 _clientId,
                 sessionPtr,
                 TsfGuids.TF_ES_SYNC | TsfGuids.TF_ES_READWRITE,
                 out _);
-            TsfDebugLog.Write("Commit",
-                $"RequestEditSession HRESULT=0x{hr:X8} text='{text}' candidates={candidateCount}");
+            TsfDebugLog.Write("Commit", $"RequestEditSession mode={mode} HRESULT=0x{hr:X8}");
         }
         finally
         {

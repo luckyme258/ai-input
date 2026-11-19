@@ -109,6 +109,9 @@ internal sealed class CandidateWindow : IDisposable
     private static extern bool InvalidateRect(IntPtr hwnd, IntPtr lpRect, bool bErase);
 
     [DllImport("user32.dll")]
+    private static extern bool ValidateRect(IntPtr hwnd, IntPtr lpRect);
+
+    [DllImport("user32.dll")]
     private static extern IntPtr GetDC(IntPtr hwnd);
 
     [DllImport("user32.dll")]
@@ -349,6 +352,8 @@ internal sealed class CandidateWindow : IDisposable
 
                 case WM_PAINT:
                     Paint(hwnd);
+                    // 校验并清空更新区，否则更新区持续为脏，WM_PAINT 会被无限重投形成刷屏循环。
+                    ValidateRect(hwnd, IntPtr.Zero);
                     return IntPtr.Zero;
 
                 case WM_ERASEBKGND:

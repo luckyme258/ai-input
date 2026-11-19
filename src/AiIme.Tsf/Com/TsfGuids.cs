@@ -79,5 +79,6 @@ internal static class HResult
     public const int S_FALSE = 1;
     public const int E_NOINTERFACE = unchecked((int)0x80004002);
     public const int E_POINTER = unchecked((int)0x80004003);
+    public const int E_INVALIDARG = unchecked((int)0x80070057);
     public const int E_FAIL = unchecked((int)0x80004005);
 }
